@@ -6,6 +6,7 @@ import base64
 import ctypes
 import hashlib
 import os
+import platform
 import socket
 import sys
 import threading
@@ -14,6 +15,7 @@ import webbrowser
 import json
 import re
 import shutil
+import uuid
 from pathlib import Path
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -24,18 +26,25 @@ try:
 except Exception:  # pragma: no cover - non-Windows fallback for source runs
     winreg = None
 
+try:
+    import fcntl
+except Exception:  # pragma: no cover - non-POSIX fallback
+    fcntl = None
+
 
 
 APP_NAME = "PS Lounge"
 MUTEX_NAME = r"Local\PSLounge_SingleInstance_v1"
 
 URL_TXT = "PS_Lounge_URL.txt"
-URL_SHORTCUT = "Open_PS_Lounge.url"
+URL_SHORTCUT_WINDOWS = "Open_PS_Lounge.url"
+URL_SHORTCUT_MACOS = "Open_PS_Lounge.webloc"
 LOG_FILE = "PS_Lounge_Log.txt"
 STATE_FILE = "pslounge_state.json"
 STATE_BAK_FILE = "pslounge_state.bak.json"
 STATE_HISTORY_DIR = "state_history"
 LICENSE_FILE = "pslounge_license.json"
+INSTANCE_LOCK_FILE = "pslounge.instance.lock"
 SCHEMA_VERSION = 3
 LICENSE_SCHEMA_VERSION = 1
 LICENSE_PRODUCT = "pslounge-desktop"
@@ -239,11 +248,71 @@ def _system_drive_serial() -> str:
         return ""
 
 
+def _platform_tag() -> str:
+    if sys.platform == "darwin":
+        return "macos"
+    if os.name == "nt":
+        return "windows"
+    return "linux"
+
+
+def _mac_platform_uuid() -> str:
+    if _platform_tag() != "macos":
+        return ""
+    try:
+        completed = subprocess.run(
+            ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        text = f"{completed.stdout}\n{completed.stderr}"
+        match = re.search(r'"IOPlatformUUID"\s*=\s*"([^"]+)"', text)
+        return str(match.group(1)).strip() if match else ""
+    except Exception:
+        return ""
+
+
+def _linux_machine_id() -> str:
+    if _platform_tag() != "linux":
+        return ""
+    for candidate in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            value = Path(candidate).read_text(encoding="utf-8").strip()
+            if value:
+                return value
+        except Exception:
+            continue
+    return ""
+
+
+def _posix_machine_identifier() -> str:
+    if _platform_tag() == "macos":
+        return _mac_platform_uuid()
+    if _platform_tag() == "linux":
+        return _linux_machine_id()
+    return ""
+
+
+def _primary_mac_address() -> str:
+    try:
+        node = int(uuid.getnode())
+        if node:
+            return f"{node:012x}"
+    except Exception:
+        pass
+    return ""
+
+
 def _machine_fingerprint_parts() -> list[str]:
     parts = [
         _registry_machine_guid(),
         _system_drive_serial(),
+        _posix_machine_identifier(),
+        _primary_mac_address(),
         os.environ.get("PROCESSOR_IDENTIFIER", "").strip(),
+        platform.machine().strip(),
         socket.gethostname().strip(),
     ]
     return [part for part in parts if part]
@@ -257,6 +326,27 @@ def _machine_fingerprint() -> str:
 def _machine_fingerprint_label() -> str:
     fp = _machine_fingerprint()
     return f"{fp[:8]}-{fp[8:16]}-{fp[16:24]}"
+
+
+def _machine_fingerprint_source_health() -> dict[str, object]:
+    sources = {
+        "registryMachineGuid": bool(_registry_machine_guid()),
+        "systemDriveSerial": bool(_system_drive_serial()),
+        "platformMachineId": bool(_posix_machine_identifier()),
+        "primaryMacAddress": bool(_primary_mac_address()),
+        "processorIdentifier": bool(os.environ.get("PROCESSOR_IDENTIFIER", "").strip()),
+        "platformMachine": bool(platform.machine().strip()),
+        "hostname": bool(socket.gethostname().strip()),
+    }
+    source_count = sum(1 for available in sources.values() if available)
+    return {
+        "sources": sources,
+        "sourceCount": source_count,
+        "stableSourceAvailable": any(
+            sources[name]
+            for name in ("registryMachineGuid", "systemDriveSerial", "platformMachineId", "primaryMacAddress")
+        ),
+    }
 
 
 def _license_file_path() -> Path:
@@ -321,6 +411,7 @@ def _license_status() -> dict:
         "status": "missing",
         "machineFingerprint": machine_fp,
         "machineFingerprintLabel": _machine_fingerprint_label(),
+        "fingerprintSourceHealth": _machine_fingerprint_source_health(),
     }
     record = _read_license_file()
     if not record:
@@ -336,15 +427,21 @@ def _license_status() -> dict:
     if not expected_fp or expected_fp != machine_fp.lower():
         return {**base, "status": "device_mismatch", "detail": "fingerprint_mismatch"}
     customer = str(payload.get("customer") or "").strip()
+    license_id = str(payload.get("licenseId") or "").strip()
+    seat_type = str(payload.get("seatType") or "single_device").strip() or "single_device"
     return {
         **base,
         "licensed": True,
         "status": "active",
         "customer": customer,
+        "licenseId": license_id,
+        "seatType": seat_type,
         "issuedAt": payload.get("issuedAt"),
         "license": {
+            "licenseId": license_id,
             "customer": customer,
             "product": payload.get("product"),
+            "seatType": seat_type,
             "fingerprint": expected_fp,
         },
     }
@@ -405,7 +502,6 @@ def _state_station_definitions(state: dict | None) -> list[dict]:
             if normalized is not None:
                 defs.append(normalized)
         if defs:
-            defs.sort(key=lambda item: item["id"])
             return defs
     stations = state.get("stations") if isinstance(state, dict) else None
     defs = []
@@ -420,7 +516,7 @@ def _state_station_definitions(state: dict | None) -> list[dict]:
                 "name": str(item.get("name") or _station_name(sid, stype)).strip(),
                 "type": stype,
             })
-    return sorted(defs, key=lambda item: item["id"])
+    return defs
 
 
 def _report_station_names(state: dict | None, session_rows: list[dict], sales_rows: list[dict]) -> list[str]:
@@ -587,6 +683,10 @@ def _collect_report_rows(state: dict, from_key: str, to_key: str, station_type: 
     keys = sorted(k for k in sessions_map.keys() if from_key <= k <= to_key)
     session_rows: list[dict] = []
     sales_rows: list[dict] = []
+    station_definitions = {
+        item["id"]: item
+        for item in _state_station_definitions(state)
+    }
     station_type = _normalize_station_type_key(station_type, '')
     payment = str(payment or '').strip().lower()
 
@@ -596,9 +696,12 @@ def _collect_report_rows(state: dict, from_key: str, to_key: str, station_type: 
                 continue
 
             sid = _safe_int(rec.get('stationId'), 0)
-            stype = _normalize_station_type_key(rec.get('stationType') or ('racing' if sid == 5 else 'switch' if sid == 6 else 'ps'))
+            configured_station = station_definitions.get(sid) or {}
+            stype = _normalize_station_type_key(
+                configured_station.get('type') or rec.get('stationType') or ('racing' if sid == 5 else 'switch' if sid == 6 else 'ps')
+            )
             display_type = _station_type_label(stype)
-            display_station = rec.get('stationName') or _station_name(sid, stype)
+            display_station = configured_station.get('name') or rec.get('stationName') or _station_name(sid, stype)
 
             session_key = f"{key}|{sid}|{_safe_int(rec.get('startTime'), 0)}|{_safe_int(rec.get('endTime'), 0)}|{rec_index}"
             session_sales_rows, total_amount, paid_minutes_total, payment_raw, payment_method, integrity_flags = _build_session_sales_rows(
@@ -641,8 +744,17 @@ def _collect_report_rows(state: dict, from_key: str, to_key: str, station_type: 
         session_rows = [r for r in session_rows if r['_stationTypeRaw'] == station_type]
         sales_rows = [r for r in sales_rows if r['_stationTypeRaw'] == station_type]
     if payment and payment != 'all':
-        session_rows = [r for r in session_rows if r['_paymentRaw'] == payment or (payment == 'mixed' and r['payment'] == 'Смешанная')]
-        sales_rows = [r for r in sales_rows if r['_paymentRaw'] == payment]
+        if payment == 'mixed':
+            session_rows = [r for r in session_rows if r['_paymentRaw'] == 'mixed']
+            matching_session_keys = {r['_sessionKey'] for r in session_rows}
+            sales_rows = [r for r in sales_rows if r['_sessionKey'] in matching_session_keys]
+        else:
+            sales_rows = [r for r in sales_rows if r['_paymentRaw'] == payment]
+            matching_session_keys = {r['_sessionKey'] for r in sales_rows}
+            session_rows = [
+                r for r in session_rows
+                if r['_paymentRaw'] == payment or r['_sessionKey'] in matching_session_keys
+            ]
 
     return session_rows, sales_rows, keys
 
@@ -1507,44 +1619,74 @@ def log(msg: str) -> None:
         pass
 
 
-def ensure_single_instance(open_existing: bool = True) -> None:
-    """Prevent multiple EXE instances (Windows)."""
-    if os.name != "nt":
-        return
-    try:
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        mutex = kernel32.CreateMutexW(None, True, MUTEX_NAME)
-        # Keep a reference so it isn't GC'ed
-        globals()["_PSLOUNGE_MUTEX"] = mutex
-        last_err = kernel32.GetLastError()
-        ERROR_ALREADY_EXISTS = 183
-        if last_err == ERROR_ALREADY_EXISTS:
-            log("Another instance is already running. Exiting.")
-            if open_existing:
-                url_path = _app_dir() / URL_TXT
-                url = ""
-                if url_path.exists():
-                    url = url_path.read_text(encoding="utf-8", errors="ignore").strip()
+def _open_existing_instance_from_url_file() -> None:
+    url_path = _app_dir() / URL_TXT
+    url = ""
+    if url_path.exists():
+        url = url_path.read_text(encoding="utf-8", errors="ignore").strip()
 
-                if url:
-                    # Only open the URL if it looks like a running PS Lounge instance.
-                    try:
-                        import urllib.request
-                        health_url = url.rstrip("/") + "/health"
-                        with urllib.request.urlopen(health_url, timeout=0.5) as r:
-                            body = (r.read(64) or b"").decode("utf-8", errors="ignore")
-                        if "OK:PSLOUNGE" in body:
-                            webbrowser.open(url)
-                        else:
-                            log(f"Existing URL does not look like PS Lounge: {health_url} -> {body!r}")
-                    except Exception as e:
-                        log(f"Failed to verify/open existing URL: {e!r}")
-            raise SystemExit(0)
+    if not url:
+        return
+
+    try:
+        import urllib.request
+
+        health_url = url.rstrip("/") + "/health"
+        with urllib.request.urlopen(health_url, timeout=0.5) as r:
+            body = (r.read(64) or b"").decode("utf-8", errors="ignore")
+        if "OK:PSLOUNGE" in body:
+            webbrowser.open(url)
+        else:
+            log(f"Existing URL does not look like PS Lounge: {health_url} -> {body!r}")
+    except Exception as e:
+        log(f"Failed to verify/open existing URL: {e!r}")
+
+
+def _acquire_posix_instance_lock(open_existing: bool = True) -> None:
+    if fcntl is None:
+        return
+    lock_path = _app_dir() / INSTANCE_LOCK_FILE
+    try:
+        lock_file = lock_path.open("a+", encoding="utf-8")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write(str(os.getpid()))
+        lock_file.flush()
+        globals()["_PSLOUNGE_INSTANCE_LOCK"] = lock_file
+    except BlockingIOError:
+        log("Another instance is already running. Exiting.")
+        if open_existing:
+            _open_existing_instance_from_url_file()
+        raise SystemExit(0)
     except SystemExit:
         raise
     except Exception as e:
-        # If mutex fails, don't block app start; just log.
-        log(f"Single-instance mutex failed: {e!r}")
+        log(f"POSIX single-instance lock failed: {e!r}")
+
+
+def ensure_single_instance(open_existing: bool = True) -> None:
+    """Prevent multiple desktop instances on supported platforms."""
+    if os.name == "nt":
+        try:
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            mutex = kernel32.CreateMutexW(None, True, MUTEX_NAME)
+            # Keep a reference so it isn't GC'ed
+            globals()["_PSLOUNGE_MUTEX"] = mutex
+            last_err = kernel32.GetLastError()
+            ERROR_ALREADY_EXISTS = 183
+            if last_err == ERROR_ALREADY_EXISTS:
+                log("Another instance is already running. Exiting.")
+                if open_existing:
+                    _open_existing_instance_from_url_file()
+                raise SystemExit(0)
+        except SystemExit:
+            raise
+        except Exception as e:
+            # If mutex fails, don't block app start; just log.
+            log(f"Single-instance mutex failed: {e!r}")
+        return
+    _acquire_posix_instance_lock(open_existing=open_existing)
 
 
 def port_in_use(host: str, port: int) -> bool:
@@ -1584,6 +1726,31 @@ def pick_port(host: str, preferred: int) -> int:
         return int(s.getsockname()[1])
 
 
+def _url_shortcut_name() -> str:
+    if _platform_tag() == "macos":
+        return URL_SHORTCUT_MACOS
+    if _platform_tag() == "windows":
+        return URL_SHORTCUT_WINDOWS
+    return ""
+
+
+def _url_shortcut_content(url: str) -> str:
+    if _platform_tag() == "windows":
+        return "[InternetShortcut]\nURL={}\n".format(url)
+    if _platform_tag() == "macos":
+        return (
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+            "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+            "<plist version=\"1.0\">\n"
+            "<dict>\n"
+            f"\t<key>URL</key>\n\t<string>{url}</string>\n"
+            "</dict>\n"
+            "</plist>\n"
+        )
+    return ""
+
+
 def write_url_files(url: str) -> None:
     d = _app_dir()
     try:
@@ -1591,12 +1758,15 @@ def write_url_files(url: str) -> None:
     except Exception as e:
         log(f"Failed to write {URL_TXT}: {e!r}")
 
-    # Windows .url shortcut
+    shortcut_name = _url_shortcut_name()
+    shortcut_content = _url_shortcut_content(url)
+    if not shortcut_name or not shortcut_content:
+        return
+
     try:
-        content = "[InternetShortcut]\nURL={}\n".format(url)
-        (d / URL_SHORTCUT).write_text(content, encoding="utf-8")
+        (d / shortcut_name).write_text(shortcut_content, encoding="utf-8")
     except Exception as e:
-        log(f"Failed to write {URL_SHORTCUT}: {e!r}")
+        log(f"Failed to write {shortcut_name}: {e!r}")
 
 
 def _default_state(source: str = "default") -> dict:
@@ -1607,7 +1777,14 @@ def _default_state(source: str = "default") -> dict:
         "stations": None,
         "sessions": None,
         "settings": None,
+        "achievements": None,
         "source": source,
+        "recoveryDiagnostics": {
+            "selectedSource": source,
+            "primaryValid": False,
+            "backupValid": False,
+            "fallbackUsed": False,
+        },
     }
 
 
@@ -1670,6 +1847,49 @@ def _is_valid_settings_blob(value: object) -> bool:
     return True
 
 
+def _is_valid_achievements_blob(value: object) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, dict):
+        return False
+
+    version = value.get("version", 1)
+    backfill_version = value.get("backfillVersion", 0)
+    unseen_ids = value.get("unseenIds", [])
+    unlocked = value.get("unlocked", {})
+    progress = value.get("progress", {})
+    break_events = value.get("breakEvents", [])
+    clean_tracking_started_at = value.get("cleanTrackingStartedAt")
+
+    if not isinstance(version, int) or version < 1:
+        return False
+    if not isinstance(backfill_version, int) or backfill_version < 0:
+        return False
+    if not isinstance(unseen_ids, list) or any(not isinstance(item, str) for item in unseen_ids):
+        return False
+    if not isinstance(unlocked, dict):
+        return False
+    for key, item in unlocked.items():
+        if not isinstance(key, str) or not isinstance(item, dict):
+            return False
+        unlocked_at = item.get("unlockedAt")
+        seen_at = item.get("seenAt")
+        if not isinstance(unlocked_at, (int, float)):
+            return False
+        if seen_at is not None and not isinstance(seen_at, (int, float)):
+            return False
+    if not isinstance(progress, dict):
+        return False
+    for key, item in progress.items():
+        if not isinstance(key, str) or not isinstance(item, (int, float)):
+            return False
+    if not isinstance(break_events, list) or any(not isinstance(item, (int, float)) for item in break_events):
+        return False
+    if clean_tracking_started_at is not None and not isinstance(clean_tracking_started_at, (int, float)):
+        return False
+    return True
+
+
 def _is_valid_state_payload(data: object) -> bool:
     if not isinstance(data, dict):
         return False
@@ -1680,6 +1900,8 @@ def _is_valid_state_payload(data: object) -> bool:
     if not _is_valid_sessions_map(data.get("sessions")):
         return False
     if not _is_valid_settings_blob(data.get("settings")):
+        return False
+    if not _is_valid_achievements_blob(data.get("achievements")):
         return False
     return True
 
@@ -1713,6 +1935,7 @@ def _read_json_candidate(path: Path) -> dict | None:
         data.setdefault("schemaVersion", SCHEMA_VERSION)
         data.setdefault("version", 1)
         data.setdefault("lastModified", 0)
+        data.setdefault("achievements", None)
         return data
     except Exception as e:
         log(f"Failed to read json candidate {path.name}: {e!r}")
@@ -1725,13 +1948,25 @@ def _read_state_file() -> dict:
     backup = app_dir / STATE_BAK_FILE
 
     primary_data = _read_json_candidate(primary)
+    backup_data = _read_json_candidate(backup)
+    diagnostics = {
+        "selectedSource": "default",
+        "primaryValid": primary_data is not None,
+        "backupValid": backup_data is not None,
+        "fallbackUsed": False,
+    }
     if primary_data is not None:
         primary_data["source"] = "primary"
+        primary_data["recoveryDiagnostics"] = {**diagnostics, "selectedSource": "primary"}
         return primary_data
 
-    backup_data = _read_json_candidate(backup)
     if backup_data is not None:
         backup_data["source"] = "backup"
+        backup_data["recoveryDiagnostics"] = {
+            **diagnostics,
+            "selectedSource": "backup",
+            "fallbackUsed": True,
+        }
         return backup_data
 
     return _default_state()
@@ -1855,8 +2090,9 @@ def api_set_backup():
     stations = payload.get("stations")
     sessions = payload.get("sessions")
     settings = payload.get("settings")
+    achievements = payload.get("achievements")
 
-    if not isinstance(last_modified, int):
+    if isinstance(last_modified, bool) or not isinstance(last_modified, int):
         return jsonify({"ok": False, "error": "lastModified must be int"}), 400
 
     # Read current to prevent older overwrite
@@ -1877,6 +2113,7 @@ def api_set_backup():
         "stations": stations,
         "sessions": sessions,
         "settings": settings,
+        "achievements": achievements,
     }
 
     if not _is_valid_state_payload(data):

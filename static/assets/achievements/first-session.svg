@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#9ae7ff"/><stop offset="1" stop-color="#ffd36f"/></linearGradient></defs>
+  <rect width="160" height="160" rx="28" fill="#10182d"/><circle cx="80" cy="80" r="52" fill="url(#g)" opacity=".18"/>
+  <path d="M48 80h64M80 48v64" stroke="url(#g)" stroke-width="12" stroke-linecap="round"/><text x="80" y="138" fill="#f7f8fc" font-size="18" text-anchor="middle" font-family="Arial">FIRST</text>
+</svg>

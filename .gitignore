@@ -1,22 +1,25 @@
 .venv/
 .venv_broken_*/
-__pycache__/
-*.pyc
-.pytest_cache/
 .codex/
 node_modules/
+__pycache__/
+*.pyc
 
 build/
 dist/
 client_release/
+deliverables/
+
+.tmp_*
+tmp_*.log
+mcp/*.sqlite
+*.pslkey
+pslounge_license*.json
+tools/license_ledger.csv
+tools/license_private_key.json
 
 pslounge_state.json
 pslounge_state.bak.json
 state_history/*.json
 
 PS_Lounge_Log.txt
-*.log
-
-pslounge_license.json
-*.pslkey
-tools/license_private_key.json

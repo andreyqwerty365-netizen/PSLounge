@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#10192f"/><rect x="34" y="34" width="92" height="92" rx="24" fill="#9ae7ff" opacity=".12"/>
+  <text x="80" y="88" fill="#9ae7ff" font-size="44" text-anchor="middle" font-family="Arial" font-weight="700">50</text><text x="80" y="126" fill="#ffd36f" font-size="16" text-anchor="middle" font-family="Arial">SESSIONS</text>
+</svg>

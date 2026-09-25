@@ -51,6 +51,7 @@
         <button class="chip chip--ghost" id="btnSessions" type="button">Сессии сегодня</button>
         <button class="chip chip--ghost" id="btnReports" type="button">Отчёты</button>
         <button class="chip chip--ghost" id="btnJournal" type="button">Журнал</button>
+        <button class="chip chip--ghost chip--badge" id="btnAchievements" type="button">Достижения <span class="chip__badge" id="achievementsBadge" hidden>0</span></button>
         <button class="chip chip--ghost" id="btnSettings" type="button">Настройки</button>
 
         <div class="meta">
@@ -270,6 +271,7 @@
             <label class="field reportDateField">
               <span class="field__label">С даты</span>
               <input id="reportDateFrom" type="hidden" />
+              <input class="field__input field__input--compact reportDateText" id="reportDateFromText" type="text" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" />
               <button class="field__input field__input--compact reportDateTrigger" id="reportDateFromTrigger" type="button" aria-expanded="false">
                 <span id="reportDateFromLabel">—</span>
                 <span class="reportDateTrigger__chevron">▾</span>
@@ -279,6 +281,7 @@
             <label class="field reportDateField">
               <span class="field__label">По дату</span>
               <input id="reportDateTo" type="hidden" />
+              <input class="field__input field__input--compact reportDateText" id="reportDateToText" type="text" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" />
               <button class="field__input field__input--compact reportDateTrigger" id="reportDateToTrigger" type="button" aria-expanded="false">
                 <span id="reportDateToLabel">—</span>
                 <span class="reportDateTrigger__chevron">▾</span>
@@ -367,6 +370,62 @@
           </div>
 
           <div class="sessions reportsList" id="reportsList"></div>
+        </div>
+      </div>
+    </div>
+
+
+    <div class="modal" id="achievementsModal" aria-hidden="true">
+      <div class="modal__panel modal__panel--reports modal__panel--achievements" role="dialog" aria-modal="true" aria-label="Достижения">
+        <div class="modal__head">
+          <div>
+            <div class="modal__title">Достижения</div>
+            <div class="modal__sub">Витрина ключевых вех по сессиям, загрузке зала и выручке.</div>
+          </div>
+          <div class="modal__headActions">
+            <button class="btn btn--ghost" id="btnCloseAchievements" type="button">Закрыть</button>
+          </div>
+        </div>
+        <div class="modal__content modal__content--reports modal__content--achievements">
+          <section class="achievementHero">
+            <div class="achievementHero__crest" aria-hidden="true">
+              <div class="achievementHero__crestCore">PS</div>
+            </div>
+            <div class="achievementHero__body">
+              <div class="achievementHero__eyebrow">Коллекция вех</div>
+              <div class="achievementHero__title">Коллекция прогресса PS Lounge</div>
+              <div class="achievementHero__lead" id="achievementHeroLead">Достижения превращают рабочие ритмы, выручку и полную загрузку зала в долгий путь с редкими вехами.</div>
+            </div>
+            <div class="achievementHero__stats">
+              <div class="achievementHero__stat">
+                <div class="achievementHero__statLabel">Коллекция</div>
+                <div class="achievementHero__statValue" id="achievementHeroCount">0/0</div>
+              </div>
+              <div class="achievementHero__stat">
+                <div class="achievementHero__statLabel">Фокус</div>
+                <div class="achievementHero__statValue achievementHero__statValue--small" id="achievementHeroNext">—</div>
+              </div>
+            </div>
+          </section>
+          <section class="achievementSpotlight" id="achievementSpotlight"></section>
+          <div class="achievementRail">
+            <div class="summaryBar summaryBar--achievements">
+              <div class="summaryCard">
+                <div class="summaryCard__label">Получено</div>
+                <div class="summaryCard__value" id="achievementSummaryUnlocked">0/0</div>
+              </div>
+              <div class="summaryCard">
+                <div class="summaryCard__label">Следующая цель</div>
+                <div class="summaryCard__value summaryCard__value--small" id="achievementSummaryInProgress">—</div>
+              </div>
+              <div class="summaryCard summaryCard--wide">
+                <div class="summaryCard__label">Последнее достижение</div>
+                <div class="summaryCard__value summaryCard__value--small" id="achievementSummaryLatest">—</div>
+              </div>
+            </div>
+            <div class="achievementFilters" id="achievementFilters" aria-label="Фильтры достижений"></div>
+          </div>
+          <div class="achievementsList" id="achievementsList"></div>
         </div>
       </div>
     </div>

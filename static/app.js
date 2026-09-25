@@ -8,8 +8,8 @@ const ASSETS_PS = {
 
 const ASSETS_SIM = {
   idle: '/static/assets/racing_idle.png',
-  active: '/static/assets/racing_active.png',
-  hint: 'racing_idle.png / racing_active.png',
+  active: '/static/assets/racing_idle.png',
+  hint: 'racing_idle.png',
 };
 
 const ASSETS_SWITCH = {
@@ -48,6 +48,7 @@ function assetsForStation(stationOrId) {
 const STORAGE_KEY = 'pslounge_stations_v7';
 const SESSIONS_KEY = 'pslounge_sessions_v7';
 const SETTINGS_KEY = 'pslounge_settings_v3';
+const ACHIEVEMENTS_KEY = 'pslounge_achievements_v1';
 
 
 const META_KEY = 'pslounge_meta_v1'; // stores lastModified for disk backup sync
@@ -110,7 +111,7 @@ function saveActionLog() {
   } catch {}
 }
 
-function addActionLog(action, station = null, details = '', level = 'info') {
+function addActionLog(action, station = null, details = '', level = 'info', options = {}) {
   const entry = {
     id: `log_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
     ts: Date.now(),
@@ -125,6 +126,8 @@ function addActionLog(action, station = null, details = '', level = 'info') {
   if (actionLog.length > ACTION_LOG_MAX) actionLog.length = ACTION_LOG_MAX;
   saveActionLog();
   if ($journalModal?.classList.contains('modal--open')) renderJournal();
+  if (ACHIEVEMENT_BREAK_ACTIONS.has(entry.action)) recordAchievementBreakEvent(entry.ts);
+  if (!options?.suppressAchievementSync) syncAchievementsState();
   return entry;
 }
 
@@ -271,7 +274,7 @@ async function flushBackupNow() {
     const res = await fetch('/api/backup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lastModified, stations, sessions, settings }),
+      body: JSON.stringify({ lastModified, stations, sessions, settings, achievements }),
     });
     if (res.ok) {
       dirtySinceFlush = false;
@@ -353,6 +356,231 @@ const PAYMENT_METHODS = [
   { id: 'transfer', label: 'Перевод' },
 ];
 
+const ACHIEVEMENTS_BACKFILL_VERSION = 3;
+const ACHIEVEMENT_BREAK_ACTIONS = new Set(['Отмена', 'Восстановление']);
+const ACHIEVEMENT_DEFINITIONS = [
+  { id: 'first_session', title: 'Первая посадка', description: 'Закройте первую игровую сессию.', icon: '01', category: 'Старт', progressMax: 1, metric: 'closedSessions', rarity: 'base' },
+  { id: 'routine', title: 'Рабочий ритм', description: 'Накопите 10 завершённых сессий.', icon: '10', category: 'Ритм', progressMax: 10, metric: 'closedSessions', rarity: 'base' },
+  { id: 'sessions_25', title: 'В потоке', description: 'Накопите 25 завершённых сессий.', icon: '25', category: 'Ритм', progressMax: 25, metric: 'closedSessions', rarity: 'rare' },
+  { id: 'operator_50', title: 'Уверенная рука', description: 'Доведите общее число завершённых сессий до 50.', icon: '50', category: 'Ритм', progressMax: 50, metric: 'closedSessions', rarity: 'rare' },
+  { id: 'sessions_100', title: 'Длинная дистанция', description: 'Накопите 100 завершённых сессий.', icon: '100', category: 'Ритм', progressMax: 100, metric: 'closedSessions', rarity: 'elite' },
+  { id: 'sessions_250', title: 'Мощный архив', description: 'Доведите общее число завершённых сессий до 250.', icon: '250', category: 'Ритм', progressMax: 250, metric: 'closedSessions', rarity: 'elite' },
+  { id: 'sessions_500', title: 'Летопись зала', description: 'Накопите 500 завершённых сессий.', icon: '500', category: 'Ритм', progressMax: 500, metric: 'closedSessions', rarity: 'legend' },
+
+  { id: 'three_running', title: 'Без остановки', description: 'Держите 3 станции активными одновременно.', icon: 'III', category: 'Зал', progressMax: 3, metric: 'concurrentPeak', rarity: 'base' },
+  { id: 'full_house', title: 'Полный зал', description: 'Заполните одновременно все станции.', icon: 'MAX', category: 'Зал', progressMax: 6, metric: 'concurrentPeak', rarity: 'rare' },
+
+  { id: 'duration_180', title: 'Длинная партия', description: 'Проведите хотя бы одну сессию на 3 часа.', icon: '3H', category: 'Сессии', progressMax: 180, metric: 'maxDurationMinutes', rarity: 'base' },
+  { id: 'marathon', title: 'Марафон', description: 'Проведите хотя бы одну сессию на 4 часа.', icon: '4H', category: 'Сессии', progressMax: 240, metric: 'maxDurationMinutes', rarity: 'rare' },
+  { id: 'duration_360', title: 'Выносливость', description: 'Проведите хотя бы одну сессию на 6 часов.', icon: '6H', category: 'Сессии', progressMax: 360, metric: 'maxDurationMinutes', rarity: 'elite' },
+  { id: 'duration_480', title: 'Ночной марафон', description: 'Проведите хотя бы одну сессию на 8 часов.', icon: '8H', category: 'Сессии', progressMax: 480, metric: 'maxDurationMinutes', rarity: 'legend' },
+
+  { id: 'playtime_24h', title: 'Сутки в игре', description: 'Накопите 24 часа суммарного игрового времени.', icon: '24H', category: 'Время', progressMax: 1440, metric: 'totalPlayMinutes', rarity: 'rare' },
+  { id: 'playtime_72h', title: 'Три полных дня', description: 'Накопите 72 часа суммарного игрового времени.', icon: '72H', category: 'Время', progressMax: 4320, metric: 'totalPlayMinutes', rarity: 'elite' },
+  { id: 'playtime_150h', title: 'Хроника смен', description: 'Накопите 150 часов суммарного игрового времени.', icon: '150H', category: 'Время', progressMax: 9000, metric: 'totalPlayMinutes', rarity: 'legend' },
+
+  { id: 'extensions_10', title: 'Ещё немного', description: 'Сделайте 10 платных продлений.', icon: '+10', category: 'Продления', progressMax: 10, metric: 'paidExtensions', rarity: 'base' },
+  { id: 'extra_time', title: 'Дополнительное время', description: 'Сделайте 25 платных продлений.', icon: '+25', category: 'Продления', progressMax: 25, metric: 'paidExtensions', rarity: 'rare' },
+  { id: 'extensions_50', title: 'Плюс ещё раунд', description: 'Сделайте 50 платных продлений.', icon: '+50', category: 'Продления', progressMax: 50, metric: 'paidExtensions', rarity: 'elite' },
+  { id: 'extensions_100', title: 'Бесконечная ночь', description: 'Сделайте 100 платных продлений.', icon: '+100', category: 'Продления', progressMax: 100, metric: 'paidExtensions', rarity: 'legend' },
+
+  { id: 'revenue_10k', title: 'Первые деньги', description: 'Наберите 10 000 рублей общей выручки.', icon: '10K', category: 'Выручка', progressMax: 10000, metric: 'totalRevenue', rarity: 'base' },
+  { id: 'revenue_25k', title: 'Касса пошла', description: 'Наберите 25 000 рублей общей выручки.', icon: '25K', category: 'Выручка', progressMax: 25000, metric: 'totalRevenue', rarity: 'rare' },
+  { id: 'revenue_50k', title: 'Хороший месяц', description: 'Наберите 50 000 рублей общей выручки.', icon: '50K', category: 'Выручка', progressMax: 50000, metric: 'totalRevenue', rarity: 'rare' },
+  { id: 'revenue_100k', title: 'Золотой фонд', description: 'Наберите 100 000 рублей общей выручки.', icon: '100K', category: 'Выручка', progressMax: 100000, metric: 'totalRevenue', rarity: 'elite' },
+  { id: 'revenue_250k', title: 'Сильная касса', description: 'Наберите 250 000 рублей общей выручки.', icon: '250K', category: 'Выручка', progressMax: 250000, metric: 'totalRevenue', rarity: 'elite' },
+  { id: 'revenue_500k', title: 'Полмиллиона света', description: 'Наберите 500 000 рублей общей выручки.', icon: '500K', category: 'Выручка', progressMax: 500000, metric: 'totalRevenue', rarity: 'legend' },
+
+  { id: 'payments', title: 'Универсал', description: 'Проведите продажи всеми способами оплаты.', icon: 'ALL', category: 'Оплата', progressMax: 3, metric: 'paymentCount', rarity: 'base' },
+
+  { id: 'best_day_10', title: 'Живой день', description: 'Закройте 10 сессий за один день.', icon: '10D', category: 'Темп', progressMax: 10, metric: 'bestDayClosed', rarity: 'base' },
+  { id: 'busy_day', title: 'Жизнь кипит', description: 'Закройте 15 сессий за один день.', icon: '15D', category: 'Темп', progressMax: 15, metric: 'bestDayClosed', rarity: 'rare' },
+  { id: 'best_day_20', title: 'Без пауз', description: 'Закройте 20 сессий за один день.', icon: '20D', category: 'Темп', progressMax: 20, metric: 'bestDayClosed', rarity: 'elite' },
+  { id: 'best_day_30', title: 'Аншлаг до ночи', description: 'Закройте 30 сессий за один день.', icon: '30D', category: 'Темп', progressMax: 30, metric: 'bestDayClosed', rarity: 'legend' },
+
+  { id: 'simulator_5', title: 'Первые круги', description: 'Закройте 5 сессий на симуляторе.', icon: 'S5', category: 'Станции', progressMax: 5, metric: 'simulatorClosed', rarity: 'base' },
+  { id: 'simulator_master', title: 'Хозяин симулятора', description: 'Закройте 12 сессий на симуляторе.', icon: 'S12', category: 'Станции', progressMax: 12, metric: 'simulatorClosed', rarity: 'rare' },
+  { id: 'simulator_30', title: 'Трасса не пустеет', description: 'Закройте 30 сессий на симуляторе.', icon: 'S30', category: 'Станции', progressMax: 30, metric: 'simulatorClosed', rarity: 'elite' },
+  { id: 'simulator_60', title: 'Король трассы', description: 'Закройте 60 сессий на симуляторе.', icon: 'S60', category: 'Станции', progressMax: 60, metric: 'simulatorClosed', rarity: 'legend' },
+
+  { id: 'switch_5', title: 'Joy-Con в деле', description: 'Закройте 5 сессий на Nintendo Switch.', icon: 'N5', category: 'Станции', progressMax: 5, metric: 'switchClosed', rarity: 'base' },
+  { id: 'switch_ready', title: 'Switch в деле', description: 'Закройте 12 сессий на Nintendo Switch.', icon: 'N12', category: 'Станции', progressMax: 12, metric: 'switchClosed', rarity: 'rare' },
+  { id: 'switch_30', title: 'Карманный хит', description: 'Закройте 30 сессий на Nintendo Switch.', icon: 'N30', category: 'Станции', progressMax: 30, metric: 'switchClosed', rarity: 'elite' },
+  { id: 'switch_60', title: 'Остров Nintendo', description: 'Закройте 60 сессий на Nintendo Switch.', icon: 'N60', category: 'Станции', progressMax: 60, metric: 'switchClosed', rarity: 'legend' },
+
+  { id: 'clean_5', title: 'Чистая серия', description: 'Закройте 5 сессий подряд без отмен и восстановлений.', icon: 'C5', category: 'Точность', progressMax: 5, metric: 'cleanCloseStreak', rarity: 'base' },
+  { id: 'clean_streak', title: 'Ни минуты зря', description: 'Закройте 12 сессий подряд без отмен и восстановлений.', icon: 'C12', category: 'Точность', progressMax: 12, metric: 'cleanCloseStreak', rarity: 'rare' },
+  { id: 'clean_20', title: 'Жёсткий порядок', description: 'Закройте 20 сессий подряд без отмен и восстановлений.', icon: 'C20', category: 'Точность', progressMax: 20, metric: 'cleanCloseStreak', rarity: 'elite' },
+  { id: 'clean_30', title: 'Идеальная линия', description: 'Закройте 30 сессий подряд без отмен и восстановлений.', icon: 'C30', category: 'Точность', progressMax: 30, metric: 'cleanCloseStreak', rarity: 'legend' },
+
+  { id: 'active_days_7', title: 'Ровный старт', description: 'Отработайте 7 разных активных дней с сессиями.', icon: '7D', category: 'Темп', progressMax: 7, metric: 'activeDays', rarity: 'base' },
+  { id: 'active_days', title: 'Постоянный темп', description: 'Отработайте 20 разных активных дней с сессиями.', icon: '20D', category: 'Темп', progressMax: 20, metric: 'activeDays', rarity: 'rare' },
+  { id: 'active_days_45', title: 'Сезон в работе', description: 'Отработайте 45 разных активных дней с сессиями.', icon: '45D', category: 'Темп', progressMax: 45, metric: 'activeDays', rarity: 'elite' },
+  { id: 'active_days_90', title: 'Длинный сезон', description: 'Отработайте 90 разных активных дней с сессиями.', icon: '90D', category: 'Темп', progressMax: 90, metric: 'activeDays', rarity: 'legend' },
+
+  { id: 'sales_25', title: 'Первая касса', description: 'Проведите 25 продаж и начислений суммарно.', icon: '25$', category: 'Выручка', progressMax: 25, metric: 'totalSales', rarity: 'base' },
+  { id: 'sales_master', title: 'Чистая касса', description: 'Проведите 80 продаж и начислений суммарно.', icon: '80$', category: 'Выручка', progressMax: 80, metric: 'totalSales', rarity: 'rare' },
+  { id: 'sales_150', title: 'Ритм продаж', description: 'Проведите 150 продаж и начислений суммарно.', icon: '150$', category: 'Выручка', progressMax: 150, metric: 'totalSales', rarity: 'elite' },
+  { id: 'sales_300', title: 'Большой оборот', description: 'Проведите 300 продаж и начислений суммарно.', icon: '300$', category: 'Выручка', progressMax: 300, metric: 'totalSales', rarity: 'legend' },
+
+  { id: 'ps_25', title: 'PS Lounge живёт', description: 'Закройте 25 сессий на классических PlayStation-станциях.', icon: 'P25', category: 'Станции', progressMax: 25, metric: 'psClosed', rarity: 'base' },
+  { id: 'ps_80', title: 'Главная сцена', description: 'Закройте 80 сессий на классических PlayStation-станциях.', icon: 'P80', category: 'Станции', progressMax: 80, metric: 'psClosed', rarity: 'rare' },
+  { id: 'ps_160', title: 'Сердце клуба', description: 'Закройте 160 сессий на классических PlayStation-станциях.', icon: 'P160', category: 'Станции', progressMax: 160, metric: 'psClosed', rarity: 'elite' },
+
+  { id: 'cash_25', title: 'Наличные в ходу', description: 'Проведите 25 оплат наличными.', icon: 'CASH', category: 'Оплата', progressMax: 25, metric: 'cashCount', rarity: 'base' },
+  { id: 'card_25', title: 'Карта наготове', description: 'Проведите 25 оплат картой.', icon: 'CARD', category: 'Оплата', progressMax: 25, metric: 'cardCount', rarity: 'base' },
+  { id: 'transfer_10', title: 'Мобильный перевод', description: 'Проведите 10 оплат переводом.', icon: 'TR', category: 'Оплата', progressMax: 10, metric: 'transferCount', rarity: 'rare' },
+
+  { id: 'premium_1000', title: 'Сильный чек', description: 'Поймайте хотя бы одну сессию с чеком от 1 000 рублей.', icon: '1K', category: 'Чек', progressMax: 1000, metric: 'highestSessionAmount', rarity: 'rare' },
+  { id: 'premium_2000', title: 'Премиум-посадка', description: 'Поймайте хотя бы одну сессию с чеком от 2 000 рублей.', icon: '2K', category: 'Чек', progressMax: 2000, metric: 'highestSessionAmount', rarity: 'elite' },
+  { id: 'sessions_5', title: 'Разминка', description: 'Накопите 5 завершённых сессий.', icon: '05', category: 'Ритм', progressMax: 5, metric: 'closedSessions', rarity: 'base' },
+  { id: 'sessions_75', title: 'Крепкий ритм', description: 'Накопите 75 завершённых сессий.', icon: '75', category: 'Ритм', progressMax: 75, metric: 'closedSessions', rarity: 'elite' },
+  { id: 'sessions_150', title: 'Плотный поток', description: 'Накопите 150 завершённых сессий.', icon: '150', category: 'Ритм', progressMax: 150, metric: 'closedSessions', rarity: 'elite' },
+  { id: 'sessions_350', title: 'Архив вечеров', description: 'Накопите 350 завершённых сессий.', icon: '350', category: 'Ритм', progressMax: 350, metric: 'closedSessions', rarity: 'legend' },
+  { id: 'sessions_750', title: 'Музей записей', description: 'Накопите 750 завершённых сессий.', icon: '750', category: 'Ритм', progressMax: 750, metric: 'closedSessions', rarity: 'mythic' },
+  { id: 'sessions_1000', title: 'Тысяча посадок', description: 'Накопите 1000 завершённых сессий.', icon: '1K', category: 'Ритм', progressMax: 1000, metric: 'closedSessions', rarity: 'mythic' },
+
+  { id: 'duration_120', title: 'Спокойная игра', description: 'Проведите хотя бы одну сессию на 2 часа.', icon: '2H', category: 'Сессии', progressMax: 120, metric: 'maxDurationMinutes', rarity: 'base' },
+  { id: 'duration_300', title: 'Долгий заход', description: 'Проведите хотя бы одну сессию на 5 часов.', icon: '5H', category: 'Сессии', progressMax: 300, metric: 'maxDurationMinutes', rarity: 'elite' },
+  { id: 'duration_540', title: 'После закрытия', description: 'Проведите хотя бы одну сессию на 9 часов.', icon: '9H', category: 'Сессии', progressMax: 540, metric: 'maxDurationMinutes', rarity: 'mythic' },
+
+  { id: 'playtime_10h', title: 'Первые десять часов', description: 'Накопите 10 часов суммарного игрового времени.', icon: '10H', category: 'Время', progressMax: 600, metric: 'totalPlayMinutes', rarity: 'base' },
+  { id: 'playtime_36h', title: 'Полтора дня', description: 'Накопите 36 часов суммарного игрового времени.', icon: '36H', category: 'Время', progressMax: 2160, metric: 'totalPlayMinutes', rarity: 'rare' },
+  { id: 'playtime_100h', title: 'Сотня часов', description: 'Накопите 100 часов суммарного игрового времени.', icon: '100H', category: 'Время', progressMax: 6000, metric: 'totalPlayMinutes', rarity: 'elite' },
+  { id: 'playtime_300h', title: 'Триста часов зала', description: 'Накопите 300 часов суммарного игрового времени.', icon: '300H', category: 'Время', progressMax: 18000, metric: 'totalPlayMinutes', rarity: 'mythic' },
+
+  { id: 'extensions_5', title: 'Добавили ещё', description: 'Сделайте 5 платных продлений.', icon: '+5', category: 'Продления', progressMax: 5, metric: 'paidExtensions', rarity: 'base' },
+  { id: 'extensions_15', title: 'Время пошло', description: 'Сделайте 15 платных продлений.', icon: '+15', category: 'Продления', progressMax: 15, metric: 'paidExtensions', rarity: 'rare' },
+  { id: 'extensions_75', title: 'Ночь продолжается', description: 'Сделайте 75 платных продлений.', icon: '+75', category: 'Продления', progressMax: 75, metric: 'paidExtensions', rarity: 'legend' },
+  { id: 'extensions_150', title: 'Ещё один час?', description: 'Сделайте 150 платных продлений.', icon: '+150', category: 'Продления', progressMax: 150, metric: 'paidExtensions', rarity: 'mythic' },
+
+  { id: 'revenue_5k', title: 'Разогрев кассы', description: 'Наберите 5 000 рублей общей выручки.', icon: '5K', category: 'Выручка', progressMax: 5000, metric: 'totalRevenue', rarity: 'base' },
+  { id: 'revenue_75k', title: 'Хорошая неделя', description: 'Наберите 75 000 рублей общей выручки.', icon: '75K', category: 'Выручка', progressMax: 75000, metric: 'totalRevenue', rarity: 'elite' },
+  { id: 'revenue_150k', title: 'Сильный оборот', description: 'Наберите 150 000 рублей общей выручки.', icon: '150K', category: 'Выручка', progressMax: 150000, metric: 'totalRevenue', rarity: 'legend' },
+  { id: 'revenue_350k', title: 'Полный зал в цифрах', description: 'Наберите 350 000 рублей общей выручки.', icon: '350K', category: 'Выручка', progressMax: 350000, metric: 'totalRevenue', rarity: 'legend' },
+  { id: 'revenue_750k', title: 'Большой кассовый свет', description: 'Наберите 750 000 рублей общей выручки.', icon: '750K', category: 'Выручка', progressMax: 750000, metric: 'totalRevenue', rarity: 'mythic' },
+  { id: 'revenue_1m', title: 'Миллионный рубеж', description: 'Наберите 1 000 000 рублей общей выручки.', icon: '1M', category: 'Выручка', progressMax: 1000000, metric: 'totalRevenue', rarity: 'mythic' },
+
+  { id: 'best_day_5', title: 'Бодрый день', description: 'Закройте 5 сессий за один день.', icon: '5D', category: 'Темп', progressMax: 5, metric: 'bestDayClosed', rarity: 'base' },
+  { id: 'best_day_12', title: 'День на подъёме', description: 'Закройте 12 сессий за один день.', icon: '12D', category: 'Темп', progressMax: 12, metric: 'bestDayClosed', rarity: 'rare' },
+  { id: 'best_day_25', title: 'День без воздуха', description: 'Закройте 25 сессий за один день.', icon: '25D', category: 'Темп', progressMax: 25, metric: 'bestDayClosed', rarity: 'legend' },
+  { id: 'best_day_40', title: 'Легендарная смена', description: 'Закройте 40 сессий за один день.', icon: '40D', category: 'Темп', progressMax: 40, metric: 'bestDayClosed', rarity: 'mythic' },
+
+  { id: 'simulator_20', title: 'Трасса открыта', description: 'Закройте 20 сессий на симуляторе.', icon: 'S20', category: 'Станции', progressMax: 20, metric: 'simulatorClosed', rarity: 'elite' },
+  { id: 'simulator_45', title: 'Сезон трассы', description: 'Закройте 45 сессий на симуляторе.', icon: 'S45', category: 'Станции', progressMax: 45, metric: 'simulatorClosed', rarity: 'mythic' },
+
+  { id: 'switch_20', title: 'Switch не простаивает', description: 'Закройте 20 сессий на Nintendo Switch.', icon: 'N20', category: 'Станции', progressMax: 20, metric: 'switchClosed', rarity: 'elite' },
+  { id: 'switch_45', title: 'Лига Nintendo', description: 'Закройте 45 сессий на Nintendo Switch.', icon: 'N45', category: 'Станции', progressMax: 45, metric: 'switchClosed', rarity: 'mythic' },
+
+  { id: 'ps_10', title: 'Первый зал PlayStation', description: 'Закройте 10 сессий на классических PlayStation-станциях.', icon: 'P10', category: 'Станции', progressMax: 10, metric: 'psClosed', rarity: 'base' },
+  { id: 'ps_50', title: 'Домашняя сцена', description: 'Закройте 50 сессий на классических PlayStation-станциях.', icon: 'P50', category: 'Станции', progressMax: 50, metric: 'psClosed', rarity: 'rare' },
+  { id: 'ps_120', title: 'Основной контур', description: 'Закройте 120 сессий на классических PlayStation-станциях.', icon: 'P120', category: 'Станции', progressMax: 120, metric: 'psClosed', rarity: 'elite' },
+  { id: 'ps_250', title: 'Лицо клуба', description: 'Закройте 250 сессий на классических PlayStation-станциях.', icon: 'P250', category: 'Станции', progressMax: 250, metric: 'psClosed', rarity: 'legend' },
+
+  { id: 'active_days_3', title: 'Первый график', description: 'Отработайте 3 разных активных дня с сессиями.', icon: '3D', category: 'Темп', progressMax: 3, metric: 'activeDays', rarity: 'base' },
+  { id: 'active_days_14', title: 'Две недели в деле', description: 'Отработайте 14 разных активных дней с сессиями.', icon: '14D', category: 'Темп', progressMax: 14, metric: 'activeDays', rarity: 'rare' },
+  { id: 'active_days_30', title: 'Целый месяц', description: 'Отработайте 30 разных активных дней с сессиями.', icon: '30D', category: 'Темп', progressMax: 30, metric: 'activeDays', rarity: 'elite' },
+  { id: 'active_days_60', title: 'Два сезона', description: 'Отработайте 60 разных активных дней с сессиями.', icon: '60D', category: 'Темп', progressMax: 60, metric: 'activeDays', rarity: 'legend' },
+  { id: 'active_days_120', title: 'Стабильный год', description: 'Отработайте 120 разных активных дней с сессиями.', icon: '120D', category: 'Темп', progressMax: 120, metric: 'activeDays', rarity: 'mythic' },
+  { id: 'active_days_180', title: 'Полгода ритма', description: 'Отработайте 180 разных активных дней с сессиями.', icon: '180D', category: 'Темп', progressMax: 180, metric: 'activeDays', rarity: 'mythic' },
+];
+
+function getAchievementDefinition(id) {
+  return ACHIEVEMENT_DEFINITIONS.find((item) => item.id === id) || null;
+}
+
+function defaultAchievementsState() {
+  return {
+    version: 1,
+    backfillVersion: 0,
+    unlocked: {},
+    progress: {},
+    unseenIds: [],
+    breakEvents: [],
+    cleanTrackingStartedAt: Date.now(),
+  };
+}
+
+function normalizeAchievementsState(raw) {
+  const src = (raw && typeof raw === 'object') ? raw : {};
+  const base = defaultAchievementsState();
+  const known = new Set(ACHIEVEMENT_DEFINITIONS.map((item) => item.id));
+  const unlocked = {};
+  if (src.unlocked && typeof src.unlocked === 'object') {
+    for (const [id, value] of Object.entries(src.unlocked)) {
+      if (!known.has(id) || !value || typeof value !== 'object') continue;
+      const unlockedAt = Number(value.unlockedAt);
+      const seenAt = value.seenAt == null ? null : Number(value.seenAt);
+      if (!Number.isFinite(unlockedAt) || unlockedAt <= 0) continue;
+      unlocked[id] = {
+        unlockedAt: Math.round(unlockedAt),
+        seenAt: Number.isFinite(seenAt) && seenAt > 0 ? Math.round(seenAt) : null,
+      };
+    }
+  }
+  const progress = {};
+  if (src.progress && typeof src.progress === 'object') {
+    for (const [id, value] of Object.entries(src.progress)) {
+      if (!known.has(id)) continue;
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) continue;
+      progress[id] = Math.max(0, numeric);
+    }
+  }
+  const unseenIds = Array.isArray(src.unseenIds)
+    ? [...new Set(src.unseenIds.filter((id) => known.has(id) && unlocked[id]))]
+    : [];
+  const breakEvents = Array.isArray(src.breakEvents)
+    ? [...new Set(src.breakEvents
+      .map((value) => Math.round(Number(value)))
+      .filter((value) => Number.isFinite(value) && value > 0))]
+    : [];
+  breakEvents.sort((a, b) => a - b);
+  const cleanTrackingStartedAtRaw = Math.round(Number(src.cleanTrackingStartedAt));
+  const cleanTrackingStartedAt = Number.isFinite(cleanTrackingStartedAtRaw) && cleanTrackingStartedAtRaw > 0
+    ? cleanTrackingStartedAtRaw
+    : base.cleanTrackingStartedAt;
+  return {
+    version: Number.isFinite(Number(src.version)) ? Math.max(1, Math.round(Number(src.version))) : base.version,
+    backfillVersion: Number.isFinite(Number(src.backfillVersion)) ? Math.max(0, Math.round(Number(src.backfillVersion))) : base.backfillVersion,
+    unlocked,
+    progress,
+    unseenIds,
+    breakEvents,
+    cleanTrackingStartedAt,
+  };
+}
+
+function loadAchievements() {
+  try {
+    const raw = localStorage.getItem(ACHIEVEMENTS_KEY);
+    if (!raw) return defaultAchievementsState();
+    return normalizeAchievementsState(JSON.parse(raw));
+  } catch {
+    return defaultAchievementsState();
+  }
+}
+
+function saveAchievements(immediate = false) {
+  achievements = normalizeAchievementsState(achievements);
+  localStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(achievements));
+  touchModified(immediate);
+}
+
+function recordAchievementBreakEvent(ts = Date.now()) {
+  achievements = normalizeAchievementsState(achievements);
+  const normalizedTs = Math.round(Number(ts));
+  if (!Number.isFinite(normalizedTs) || normalizedTs <= 0) return;
+  const events = Array.isArray(achievements.breakEvents) ? achievements.breakEvents : [];
+  if (events[events.length - 1] === normalizedTs) return;
+  achievements.breakEvents = [...events, normalizedTs];
+  saveAchievements(true);
+}
+
+function countUnseenAchievements() {
+  return Array.isArray(achievements?.unseenIds) ? achievements.unseenIds.length : 0;
+}
+
 function defaultStationDefinitions() {
   return DEFAULT_STATION_DEFINITIONS.map((item) => ({ ...item }));
 }
@@ -385,7 +613,7 @@ function normalizeStationDefinitions(list) {
     seen.add(normalized.id);
     out.push(normalized);
   }
-  return out.length ? sortStationDefinitions(out) : defaultStationDefinitions();
+  return out.length ? out : defaultStationDefinitions();
 }
 
 function getStationDefinitions(source = settings) {
@@ -700,6 +928,21 @@ const $summaryPaid = document.getElementById('summaryPaid');
 // reports modal
 const $btnReports = document.getElementById('btnReports');
 const $btnJournal = document.getElementById('btnJournal');
+const $btnAchievements = document.getElementById('btnAchievements');
+const $achievementsBadge = document.getElementById('achievementsBadge');
+const $achievementsModal = document.getElementById('achievementsModal');
+const $achievementsContent = $achievementsModal?.querySelector('.modal__content--achievements');
+const $btnCloseAchievements = document.getElementById('btnCloseAchievements');
+const $achievementSummaryUnlocked = document.getElementById('achievementSummaryUnlocked');
+const $achievementSummaryInProgress = document.getElementById('achievementSummaryInProgress');
+const $achievementSummaryLatest = document.getElementById('achievementSummaryLatest');
+const $achievementHero = $achievementsModal?.querySelector('.achievementHero');
+const $achievementHeroLead = document.getElementById('achievementHeroLead');
+const $achievementHeroCount = document.getElementById('achievementHeroCount');
+const $achievementHeroNext = document.getElementById('achievementHeroNext');
+const $achievementSpotlight = document.getElementById('achievementSpotlight');
+const $achievementFilters = document.getElementById('achievementFilters');
+const $achievementsList = document.getElementById('achievementsList');
 const $journalModal = document.getElementById('journalModal');
 const $btnCloseJournal = document.getElementById('btnCloseJournal');
 const $btnClearJournal = document.getElementById('btnClearJournal');
@@ -719,6 +962,8 @@ const $btnCloseReports = document.getElementById('btnCloseReports');
 const $btnExportReports = document.getElementById('btnExportReports');
 const $reportDateFrom = document.getElementById('reportDateFrom');
 const $reportDateTo = document.getElementById('reportDateTo');
+const $reportDateFromText = document.getElementById('reportDateFromText');
+const $reportDateToText = document.getElementById('reportDateToText');
 const $reportDateFromTrigger = document.getElementById('reportDateFromTrigger');
 const $reportDateToTrigger = document.getElementById('reportDateToTrigger');
 const $reportDateFromLabel = document.getElementById('reportDateFromLabel');
@@ -783,6 +1028,8 @@ let stations = loadStations();
 stations = syncStationsWithDefinitions(stations, getStationDefinitions(settings));
 let sessions = loadSessions();
 let actionLog = loadActionLog();
+let achievements = loadAchievements();
+let achievementFilter = 'all';
 if (actionLog.length > ACTION_LOG_MAX) {
   actionLog = actionLog.slice(0, ACTION_LOG_MAX);
   saveActionLog();
@@ -1109,6 +1356,500 @@ function paymentTotalsFromSessions(list) {
   return totals;
 }
 
+function computeConcurrentStationPeak() {
+  const points = [];
+  const now = Date.now();
+  for (const list of Object.values(sessions || {})) {
+    if (!Array.isArray(list)) continue;
+    for (const rec of list) {
+      const start = Number(rec?.startTime);
+      if (!Number.isFinite(start) || start <= 0) continue;
+      const end = Number.isFinite(Number(rec?.endTime)) ? Number(rec.endTime) : now;
+      points.push({ ts: start, delta: 1 });
+      points.push({ ts: Math.max(start, end), delta: -1 });
+    }
+  }
+  points.sort((a, b) => a.ts - b.ts || a.delta - b.delta);
+  let current = 0;
+  let peak = 0;
+  for (const point of points) {
+    current += point.delta;
+    if (current > peak) peak = current;
+  }
+  return peak;
+}
+
+function computeCleanCloseStreak() {
+  const events = [];
+  const trackingStartedAt = Math.max(0, Math.round(Number(achievements?.cleanTrackingStartedAt) || 0));
+  for (const list of Object.values(sessions || {})) {
+    if (!Array.isArray(list)) continue;
+    for (const rec of list) {
+      const endTime = Math.round(Number(rec?.endTime));
+      if (!Number.isFinite(endTime) || endTime <= 0 || endTime < trackingStartedAt) continue;
+      events.push({ ts: endTime, type: 'close' });
+    }
+  }
+  for (const ts of achievements?.breakEvents || []) {
+    const breakTs = Math.round(Number(ts));
+    if (!Number.isFinite(breakTs) || breakTs <= 0 || breakTs < trackingStartedAt) continue;
+    events.push({ ts: breakTs, type: 'break' });
+  }
+  events.sort((a, b) => a.ts - b.ts || (a.type === 'break' ? -1 : 1));
+  let streak = 0;
+  let best = 0;
+  for (const event of events) {
+    if (event.type === 'break') {
+      streak = 0;
+      continue;
+    }
+    streak += 1;
+    if (streak > best) best = streak;
+  }
+  return best;
+}
+
+function collectAchievementMetrics() {
+  const perDayClosed = new Map();
+  const perTypeClosed = { ps: 0, simulator: 0, switch: 0 };
+  let closedSessions = 0;
+  let totalRevenue = 0;
+  let maxDurationMinutes = 0;
+  let totalPlayMinutes = 0;
+  let paidExtensions = 0;
+  let totalSales = 0;
+  const paymentSet = new Set();
+  const paymentCounts = { cash: 0, card: 0, transfer: 0 };
+  let highestSessionAmount = 0;
+
+  for (const [dayKey, list] of Object.entries(sessions || {})) {
+    if (!Array.isArray(list)) continue;
+    for (const rec of list) {
+      if (!rec || typeof rec !== 'object') continue;
+      const sessionAmount = Math.max(0, Math.round(Number(rec.totalAmount) || 0));
+      totalRevenue += sessionAmount;
+      if (sessionAmount > highestSessionAmount) highestSessionAmount = sessionAmount;
+      const sales = Array.isArray(rec.sales) ? rec.sales : [];
+      if (sales.length) {
+        totalSales += sales.length;
+        for (const sale of sales) {
+          const paymentMethod = String(sale?.paymentMethod || rec.paymentMethod || 'cash');
+          if (PAYMENT_METHODS.some((item) => item.id === paymentMethod)) paymentSet.add(paymentMethod);
+          if (paymentCounts[paymentMethod] != null) paymentCounts[paymentMethod] += 1;
+          if (['extend_tariff', 'extend_custom', 'extend_paid_minutes'].includes(String(sale?.type || ''))) paidExtensions += 1;
+        }
+      } else {
+        const fallbackMethod = String(rec.paymentMethod || 'cash');
+        if (PAYMENT_METHODS.some((item) => item.id === fallbackMethod)) paymentSet.add(fallbackMethod);
+        if (paymentCounts[fallbackMethod] != null && sessionAmount > 0) paymentCounts[fallbackMethod] += 1;
+        if (Number(rec?.totalAmount) > 0) totalSales += 1;
+      }
+      if (!Number.isFinite(Number(rec.endTime))) continue;
+      closedSessions += 1;
+      perDayClosed.set(dayKey, (perDayClosed.get(dayKey) || 0) + 1);
+      const stype = getStationType(rec);
+      if (perTypeClosed[stype] != null) perTypeClosed[stype] += 1;
+      const duration = Math.max(0, Math.round((Number(rec.endTime) - Number(rec.startTime || rec.endTime)) / 60000));
+      totalPlayMinutes += duration;
+      if (duration > maxDurationMinutes) maxDurationMinutes = duration;
+    }
+  }
+
+  return {
+    closedSessions,
+    concurrentPeak: computeConcurrentStationPeak(),
+    stationCount: Math.max(1, getStationDefinitions().length),
+    maxDurationMinutes,
+    totalPlayMinutes,
+    paidExtensions,
+    totalRevenue,
+    paymentCount: paymentSet.size,
+    bestDayClosed: Math.max(0, ...perDayClosed.values()),
+    psClosed: perTypeClosed.ps || 0,
+    simulatorClosed: perTypeClosed.simulator || 0,
+    switchClosed: perTypeClosed.switch || 0,
+    cleanCloseStreak: computeCleanCloseStreak(),
+    activeDays: perDayClosed.size,
+    totalSales,
+    cashCount: paymentCounts.cash,
+    cardCount: paymentCounts.card,
+    transferCount: paymentCounts.transfer,
+    highestSessionAmount,
+  };
+}
+
+function metricForAchievement(id, metrics) {
+  const def = getAchievementDefinition(id);
+  if (!def) return 0;
+  if (id === 'full_house') return Math.min(metrics.concurrentPeak, metrics.stationCount);
+  const metricValue = metrics?.[def.metric];
+  return Number.isFinite(Number(metricValue)) ? Number(metricValue) : 0;
+}
+
+function renderAchievementsButton() {
+  if (!$btnAchievements || !$achievementsBadge) return;
+  const unseen = countUnseenAchievements();
+  $achievementsBadge.textContent = unseen > 9 ? '9+' : String(unseen);
+  $achievementsBadge.hidden = unseen <= 0;
+  $btnAchievements.classList.toggle('chip--active', unseen > 0);
+}
+
+function getAchievementViewModels() {
+  const progressMap = achievements?.progress || {};
+  const unlockedMap = achievements?.unlocked || {};
+  return ACHIEVEMENT_DEFINITIONS.map((item) => {
+    const unlockedEntry = unlockedMap[item.id] || null;
+    const dynamicMax = item.id === 'full_house' ? Math.max(1, getStationDefinitions().length) : item.progressMax;
+    const progressMax = Math.max(1, Number(dynamicMax) || 1);
+    const progressRaw = Math.max(0, Number(progressMap[item.id] || 0));
+    const progressValue = Math.min(progressMax, progressRaw);
+    return {
+      ...item,
+      progressMax,
+      progressValue,
+      progressPercent: Math.min(100, Math.round((progressValue / progressMax) * 100)),
+      isUnlocked: !!unlockedEntry,
+      unlockedAt: unlockedEntry?.unlockedAt || null,
+      seenAt: unlockedEntry?.seenAt || null,
+    };
+  });
+}
+
+function achievementRarity(item) {
+  if (item?.rarity === 'mythic') return 'Мифическое';
+  if (item?.rarity === 'legend') return 'Легенда';
+  if (item?.rarity === 'elite') return 'Элита';
+  if (item?.rarity === 'rare') return 'Редкое';
+  return 'Базовое';
+}
+
+function achievementRaritySlug(item) {
+  if (item?.rarity === 'mythic') return 'mythic';
+  if (item?.rarity === 'legend') return 'legend';
+  if (item?.rarity === 'elite') return 'elite';
+  if (item?.rarity === 'rare') return 'rare';
+  return 'base';
+}
+
+function achievementMatchesFilter(item, filter) {
+  if (filter === 'unlocked') return item.isUnlocked;
+  if (filter === 'progress') return !item.isUnlocked && item.progressValue > 0;
+  if (filter === 'top') return ['legend', 'mythic'].includes(achievementRaritySlug(item));
+  return true;
+}
+
+function achievementFilterOptions(items) {
+  return [
+    { id: 'all', label: 'Все', count: items.length },
+    { id: 'unlocked', label: 'Получено', count: items.filter((item) => item.isUnlocked).length },
+    { id: 'progress', label: 'На пути', count: items.filter((item) => !item.isUnlocked && item.progressValue > 0).length },
+    { id: 'top', label: 'Топ', count: items.filter((item) => ['legend', 'mythic'].includes(achievementRaritySlug(item))).length },
+  ];
+}
+
+function achievementIconKey(item) {
+  const metric = String(item?.metric || '');
+  if (metric === 'closedSessions') return 'rhythm';
+  if (metric === 'concurrentPeak') return 'hall';
+  if (metric === 'maxDurationMinutes' || metric === 'totalPlayMinutes') return 'clock';
+  if (metric === 'paidExtensions') return 'plus';
+  if (metric === 'totalRevenue' || metric === 'totalSales') return 'coins';
+  if (metric === 'paymentCount') return 'wallet';
+  if (metric === 'cashCount') return 'cash';
+  if (metric === 'cardCount') return 'card';
+  if (metric === 'transferCount') return 'transfer';
+  if (metric === 'simulatorClosed') return 'simulator';
+  if (metric === 'switchClosed') return 'switch';
+  if (metric === 'psClosed') return 'gamepad';
+  if (metric === 'cleanCloseStreak') return 'check';
+  if (metric === 'activeDays' || metric === 'bestDayClosed') return 'calendar';
+  if (metric === 'highestSessionAmount') return 'gem';
+  return 'star';
+}
+
+function renderAchievementGlyph(iconKey) {
+  switch (iconKey) {
+    case 'rhythm':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><path d="M3 15c2.2 0 2.2-6 4.4-6s2.2 10 4.4 10 2.2-14 4.4-14 2.2 8 4.4 8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    case 'hall':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><circle cx="6" cy="6" r="2.2" fill="currentColor"/><circle cx="12" cy="6" r="2.2" fill="currentColor"/><circle cx="18" cy="6" r="2.2" fill="currentColor"/><circle cx="6" cy="12" r="2.2" fill="currentColor"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><circle cx="18" cy="12" r="2.2" fill="currentColor"/><circle cx="6" cy="18" r="2.2" fill="currentColor"/><circle cx="12" cy="18" r="2.2" fill="currentColor"/><circle cx="18" cy="18" r="2.2" fill="currentColor"/></svg>';
+    case 'clock':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.2V12l3.6 2.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    case 'plus':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><path d="M12 4.5v15M4.5 12h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="12" r="8.8" fill="none" stroke="currentColor" stroke-opacity=".32" stroke-width="1.2"/></svg>';
+    case 'coins':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><ellipse cx="8" cy="8" rx="3.6" ry="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.4 8v4.4c0 1 1.6 1.8 3.6 1.8s3.6-.8 3.6-1.8V8M12.6 11.2c0-1 1.6-1.8 3.6-1.8s3.6.8 3.6 1.8v4.6c0 1-1.6 1.8-3.6 1.8s-3.6-.8-3.6-1.8v-4.6Z" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="16.2" cy="11.2" rx="3.6" ry="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+    case 'wallet':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><path d="M4.5 8.2c0-1.4 1.1-2.5 2.5-2.5h10.6a1.9 1.9 0 0 1 1.9 1.9v1.1h-9.2A2.8 2.8 0 0 0 7.5 11.5v1A2.8 2.8 0 0 0 10.3 15h9.2v1.4a1.9 1.9 0 0 1-1.9 1.9H7A2.5 2.5 0 0 1 4.5 15.8V8.2Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M19.5 9.7h-9.2c-1 0-1.8.8-1.8 1.8v1c0 1 .8 1.8 1.8 1.8h9.2Z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="13.1" cy="12" r="1.1" fill="currentColor"/></svg>';
+    case 'cash':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><rect x="4" y="6.5" width="16" height="11" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7 9.3h.01M17 14.7h.01" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
+    case 'card':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><rect x="3.8" y="6" width="16.4" height="12" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.8 10.1h16.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7.4 14.1h4.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
+    case 'transfer':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><path d="M6 8h10.5M13.4 4.8 17 8.2l-3.6 3.4M18 16H7.5M10.6 12.6 7 16l3.6 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    case 'simulator':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><circle cx="12" cy="12" r="6.8" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 5.2v4.6M18.8 12h-4.6M12 18.8v-4.6M5.2 12h4.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
+    case 'switch':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><rect x="4.2" y="5.2" width="6.4" height="13.6" rx="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13.4" y="5.2" width="6.4" height="13.6" rx="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7.4" cy="9.2" r="1.1" fill="currentColor"/><circle cx="16.6" cy="14.8" r="1.1" fill="currentColor"/></svg>';
+    case 'gamepad':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><path d="M7 10.4h10c1.9 0 3.4 1.5 3.4 3.4 0 3.2-2 5.2-3.7 5.2-1.1 0-1.8-.6-2.6-1.2-.7-.5-1.4-1-2.1-1s-1.4.5-2.1 1c-.8.6-1.5 1.2-2.6 1.2C5.6 19 3.6 17 3.6 13.8c0-1.9 1.5-3.4 3.4-3.4Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 13.3v2.2M6.9 14.4h2.2M15.8 13.8h.01M17.4 15.4h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+    case 'check':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><path d="M5.5 12.8 9.6 17l8.9-10.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-opacity=".32" stroke-width="1.2"/></svg>';
+    case 'calendar':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><rect x="4.2" y="6" width="15.6" height="13.2" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 4.5v3M16 4.5v3M4.2 9.4h15.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m9.2 13.2 1.7 1.8 3.9-4.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    case 'gem':
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><path d="M7 8.4 9.7 5h4.6L17 8.4 12 19 7 8.4Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M7 8.4h10M9.7 5 12 8.4 14.3 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+    default:
+      return '<svg viewBox="0 0 24 24" class="achievementGlyph" aria-hidden="true"><path d="m12 4.8 2.2 4.6 5 .7-3.6 3.6.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.6 5-.7Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+  }
+}
+
+function renderAchievementEmblem(item, variant = 'card') {
+  const token = escapeHtml(String(item?.icon || '★'));
+  const rarity = escapeHtml(achievementRaritySlug(item));
+  const glyph = renderAchievementGlyph(achievementIconKey(item));
+  return `
+    <div class="achievementEmblem achievementEmblem--${rarity} achievementEmblem--${escapeHtml(variant)}" aria-hidden="true">
+      <div class="achievementEmblem__halo"></div>
+      <div class="achievementEmblem__ring"></div>
+      <div class="achievementEmblem__core">
+        <div class="achievementEmblem__glyph">${glyph}</div>
+        <div class="achievementEmblem__chip">${token}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAchievements() {
+  if (!$achievementsList) return;
+  const items = getAchievementViewModels().sort((a, b) => {
+    if (a.isUnlocked !== b.isUnlocked) return a.isUnlocked ? -1 : 1;
+    if (a.isUnlocked && b.isUnlocked) return (b.unlockedAt || 0) - (a.unlockedAt || 0);
+    return b.progressPercent - a.progressPercent;
+  });
+  const unlockedCount = items.filter((item) => item.isUnlocked).length;
+  const latest = items.filter((item) => item.isUnlocked).sort((a, b) => (b.unlockedAt || 0) - (a.unlockedAt || 0))[0] || null;
+  const nextGoal = items
+    .filter((item) => !item.isUnlocked)
+    .sort((a, b) => {
+      if (b.progressPercent !== a.progressPercent) return b.progressPercent - a.progressPercent;
+      return (a.progressMax - a.progressValue) - (b.progressMax - b.progressValue);
+    })[0] || null;
+  const spotlight = nextGoal || latest || items[0] || null;
+
+  if ($achievementSummaryUnlocked) $achievementSummaryUnlocked.textContent = `${unlockedCount}/${items.length}`;
+  if ($achievementSummaryInProgress) {
+    $achievementSummaryInProgress.textContent = nextGoal
+      ? `${nextGoal.title} • ${nextGoal.progressValue}/${nextGoal.progressMax}`
+      : 'Коллекция завершена';
+  }
+  if ($achievementSummaryLatest) $achievementSummaryLatest.textContent = latest ? `${latest.title} • ${formatDateRU(latest.unlockedAt)}` : '—';
+  if ($achievementHeroCount) $achievementHeroCount.textContent = `${unlockedCount}/${items.length}`;
+  if ($achievementHeroNext) {
+    $achievementHeroNext.textContent = nextGoal
+      ? `${nextGoal.title} • ${nextGoal.progressValue}/${nextGoal.progressMax}`
+      : 'Все вехи собраны';
+  }
+  if ($achievementHeroLead) {
+    $achievementHeroLead.textContent = nextGoal
+      ? `Ближе всего сейчас цель «${nextGoal.title}»: уже ${nextGoal.progressValue} из ${nextGoal.progressMax}. Витрина отмечает не быстрые победы, а длинный ритм смен, выручки и полной загрузки зала.`
+      : 'Коллекция закрыта полностью. Все ключевые вехи по сессиям, загрузке зала и выручке уже собраны.';
+  }
+  if ($achievementSpotlight) {
+    if (spotlight) {
+      const rarity = achievementRarity(spotlight);
+      const stateLabel = spotlight.isUnlocked ? 'Получено' : spotlight.progressValue > 0 ? 'На пути' : 'Запечатано';
+      const stateMeta = spotlight.isUnlocked && spotlight.unlockedAt
+        ? `Витрина пополнилась ${formatDateRU(spotlight.unlockedAt)}`
+        : `Текущий прогресс: ${spotlight.progressValue}/${spotlight.progressMax}`;
+      const accentLabel = spotlight.isUnlocked ? 'Последнее достижение' : 'Фокус коллекции';
+      $achievementSpotlight.innerHTML = `
+        <article class="achievementSpotlight__card achievementSpotlight__card--${achievementRaritySlug(spotlight)}${spotlight.isUnlocked ? ' achievementSpotlight__card--unlocked' : ''}">
+          <div class="achievementSpotlight__artWrap">
+            ${renderAchievementEmblem(spotlight, 'spotlight')}
+          </div>
+          <div class="achievementSpotlight__body">
+            <div class="achievementSpotlight__eyebrow">${escapeHtml(accentLabel)}</div>
+            <div class="achievementSpotlight__titleRow">
+              <div>
+                <h3 class="achievementSpotlight__title">${escapeHtml(spotlight.title)}</h3>
+                <div class="achievementSpotlight__meta">${escapeHtml(stateMeta)}</div>
+              </div>
+              <div class="achievementSpotlight__state">${escapeHtml(stateLabel)}</div>
+            </div>
+            <div class="achievementSpotlight__tags">
+              <span class="achievementTag">${escapeHtml(spotlight.category)}</span>
+              <span class="achievementTag achievementTag--accent">${escapeHtml(rarity)}</span>
+            </div>
+            <p class="achievementSpotlight__description">${escapeHtml(spotlight.description)}</p>
+            <div class="achievementProgress achievementProgress--spotlight">
+              <div class="achievementProgress__track"><span class="achievementProgress__fill" style="width:${spotlight.progressPercent}%"></span></div>
+              <div class="achievementProgress__label">${escapeHtml(String(spotlight.progressValue))}/${escapeHtml(String(spotlight.progressMax))}</div>
+            </div>
+          </div>
+        </article>
+      `;
+    } else {
+      $achievementSpotlight.innerHTML = '';
+    }
+  }
+
+  const filterOptions = achievementFilterOptions(items);
+  if (!filterOptions.some((item) => item.id === achievementFilter && item.count > 0) && achievementFilter !== 'all') {
+    achievementFilter = 'all';
+  }
+  if ($achievementFilters) {
+    $achievementFilters.innerHTML = filterOptions.map((item) => `
+      <button class="achievementFilter${item.id === achievementFilter ? ' achievementFilter--active' : ''}" type="button" data-achievement-filter="${escapeHtml(item.id)}">
+        <span class="achievementFilter__label">${escapeHtml(item.label)}</span>
+        <span class="achievementFilter__count">${escapeHtml(String(item.count))}</span>
+      </button>
+    `).join('');
+  }
+
+  const filteredItems = items.filter((item) => achievementMatchesFilter(item, achievementFilter));
+  $achievementsList.innerHTML = '';
+  if (!filteredItems.length) {
+    $achievementsList.innerHTML = `
+      <article class="achievementEmptyState">
+        <div class="achievementEmptyState__eyebrow">Пусто по фильтру</div>
+        <div class="achievementEmptyState__title">Сейчас здесь нет подходящих достижений</div>
+        <div class="achievementEmptyState__body">Смените фильтр выше, чтобы вернуться к полной коллекции и текущим вехам.</div>
+      </article>
+    `;
+    return;
+  }
+  const featuredId = achievementFilter === 'progress'
+    ? nextGoal?.id || null
+    : achievementFilter === 'all'
+      ? latest?.id || null
+      : null;
+  filteredItems.forEach((item, index) => {
+    const card = document.createElement('article');
+    const isFeatured = !!featuredId && item.id === featuredId && item.id !== spotlight?.id;
+    const backdropToken = item.icon || item.category.slice(0, 3).toUpperCase();
+    const featuredLabel = achievementFilter === 'progress' ? 'Следующая цель' : 'Последнее достижение';
+    card.className = `achievementCard achievementCard--${achievementRaritySlug(item)}${item.isUnlocked ? ' achievementCard--unlocked' : item.progressValue > 0 ? ' achievementCard--progress' : ''}${!item.isUnlocked ? ' achievementCard--locked' : ''}${isFeatured ? ' achievementCard--featured' : ''}${index % 5 === 3 ? ' achievementCard--tall' : ''}`;
+    card.innerHTML = `
+      <div class="achievementCard__marker achievementCard__marker--${item.isUnlocked ? 'done' : item.progressValue > 0 ? 'track' : 'sealed'}"></div>
+      <div class="achievementCard__backdrop">${escapeHtml(String(backdropToken))}</div>
+      <div class="achievementCard__head">
+        <div class="achievementCard__iconWrap">
+          ${renderAchievementEmblem(item, isFeatured ? 'featured' : 'card')}
+        </div>
+        <div>
+          ${isFeatured ? `<div class="achievementCard__eyebrow">${escapeHtml(featuredLabel)}</div>` : ''}
+          <div class="achievementCard__title">${escapeHtml(item.title)}</div>
+          <div class="achievementCard__meta">${item.isUnlocked && item.unlockedAt ? `Получено • ${escapeHtml(formatDateRU(item.unlockedAt))}` : item.progressValue > 0 ? `На пути • ${escapeHtml(String(item.progressValue))}/${escapeHtml(String(item.progressMax))}` : 'Коллекция ещё закрыта'}</div>
+        </div>
+        <div class="achievementCard__statusStack">
+          <div class="achievementCard__corner">${escapeHtml(achievementRarity(item))}</div>
+          <div class="achievementCard__state">${item.isUnlocked ? 'Получено' : item.progressValue > 0 ? 'На пути' : 'Запечатано'}</div>
+        </div>
+      </div>
+      <div class="achievementCard__tags">
+        <span class="achievementTag">${escapeHtml(item.category)}</span>
+        <span class="achievementTag achievementTag--accent">${escapeHtml(achievementRarity(item))}</span>
+      </div>
+      <div class="achievementCard__body">${escapeHtml(item.description)}</div>
+      <div class="achievementProgress">
+        <div class="achievementProgress__track"><span class="achievementProgress__fill" style="width:${item.progressPercent}%"></span></div>
+        <div class="achievementProgress__label">${escapeHtml(String(item.progressValue))}/${escapeHtml(String(item.progressMax))}</div>
+      </div>
+    `;
+    $achievementsList.appendChild(card);
+  });
+}
+
+function openAchievements() {
+  if (!$achievementsModal) return;
+  $achievementsModal.classList.add('modal--open');
+  $achievementsModal.setAttribute('aria-hidden', 'false');
+  if (countUnseenAchievements() > 0) {
+    const seenAt = Date.now();
+    for (const id of achievements.unseenIds || []) {
+      if (achievements.unlocked[id]) achievements.unlocked[id].seenAt = seenAt;
+    }
+    achievements.unseenIds = [];
+    saveAchievements(true);
+  }
+  renderAchievementsButton();
+  renderAchievements();
+  if ($achievementsContent) {
+    $achievementsContent.scrollTop = 0;
+    requestAnimationFrame(() => {
+      if ($achievementsContent) $achievementsContent.scrollTop = 0;
+      $achievementHero?.scrollIntoView({ block: 'start', inline: 'nearest' });
+      setTimeout(() => {
+        if ($achievementsContent) $achievementsContent.scrollTop = 0;
+      }, 0);
+    });
+  }
+}
+
+function closeAchievements() {
+  $achievementsModal?.classList.remove('modal--open');
+  $achievementsModal?.setAttribute('aria-hidden', 'true');
+}
+
+function syncAchievementsState(options = {}) {
+  if (!achievements) achievements = defaultAchievementsState();
+  if (syncAchievementsState._running) return;
+  syncAchievementsState._running = true;
+  try {
+    const state = normalizeAchievementsState(achievements);
+    const metrics = collectAchievementMetrics();
+    const progress = {};
+    const unseen = new Set(state.unseenIds || []);
+    const now = Date.now();
+    const isBackfill = state.backfillVersion < ACHIEVEMENTS_BACKFILL_VERSION;
+    const newlyUnlocked = [];
+
+    for (const item of ACHIEVEMENT_DEFINITIONS) {
+      const progressMax = item.id === 'full_house' ? Math.max(1, metrics.stationCount) : item.progressMax;
+      const value = Math.max(0, metricForAchievement(item.id, metrics));
+      progress[item.id] = Math.min(progressMax, value);
+      if (value >= progressMax && !state.unlocked[item.id]) {
+        state.unlocked[item.id] = {
+          unlockedAt: now,
+          seenAt: options.silent ? now : null,
+        };
+        if (!options.silent) unseen.add(item.id);
+        newlyUnlocked.push(item.id);
+      }
+    }
+
+    state.progress = progress;
+    state.unseenIds = [...unseen].filter((id) => state.unlocked[id]);
+    if (isBackfill) state.backfillVersion = ACHIEVEMENTS_BACKFILL_VERSION;
+    achievements = state;
+    localStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(achievements));
+
+    if (newlyUnlocked.length && !(isBackfill || options.silent)) {
+      const latestDef = getAchievementDefinition(newlyUnlocked[newlyUnlocked.length - 1]);
+      if (latestDef) toast(`Достижение открыто: ${latestDef.title}`, 2400);
+      newlyUnlocked.forEach((id) => {
+        const def = getAchievementDefinition(id);
+        if (!def) return;
+        addActionLog('Достижение открыто', null, def.title, 'info', { suppressAchievementSync: true });
+      });
+      touchModified(true);
+    } else if (isBackfill && newlyUnlocked.length) {
+      newlyUnlocked.forEach((id) => {
+        const def = getAchievementDefinition(id);
+        if (!def) return;
+        addActionLog('Достижение открыто', null, def.title, 'info', { suppressAchievementSync: true });
+      });
+      touchModified(true);
+    }
+
+    renderAchievementsButton();
+    if ($achievementsModal?.classList.contains('modal--open')) renderAchievements();
+  } finally {
+    syncAchievementsState._running = false;
+  }
+}
+
 function init() {
   if (appInitialized) return;
   appInitialized = true;
@@ -1130,6 +1871,8 @@ function init() {
   renderTariffs();
   renderPaymentMethods();
   renderStations(true);
+  syncAchievementsState();
+  renderAchievementsButton();
   startTicking();
   startClock();
   bindNotificationAudioUnlock();
@@ -1156,9 +1899,20 @@ function init() {
 
 function bindUI() {
   $btnSessions.addEventListener('click', openSessions);
+  $btnAchievements?.addEventListener('click', openAchievements);
   $btnCloseSessions?.addEventListener('click', closeSessions);
+  $btnCloseAchievements?.addEventListener('click', closeAchievements);
   $sessionsModal.addEventListener('click', (e) => {
     if (e.target === $sessionsModal) closeSessions();
+  });
+  $achievementsModal?.addEventListener('click', (e) => {
+    if (e.target === $achievementsModal) closeAchievements();
+  });
+  $achievementFilters?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-achievement-filter]');
+    if (!btn) return;
+    achievementFilter = btn.getAttribute('data-achievement-filter') || 'all';
+    renderAchievements();
   });
   $btnClearToday.addEventListener('click', () => {
     const ok = confirm('Очистить список сессий за сегодня?\n\nЭто действие удалит весь список и его нельзя отменить.');
@@ -1287,6 +2041,18 @@ $journalSearch?.addEventListener('input', renderJournal);
   $reportDateToTrigger?.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleReportDatePicker('to');
+  });
+  $reportDateFromText?.addEventListener('blur', () => commitReportDateText('from'));
+  $reportDateToText?.addEventListener('blur', () => commitReportDateText('to'));
+  $reportDateFromText?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    commitReportDateText('from');
+  });
+  $reportDateToText?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    commitReportDateText('to');
   });
   $reportPresetButtons.forEach((btn) => {
     btn.addEventListener('click', () => applyReportPreset(btn.dataset.reportPreset || 'today'));
@@ -2407,12 +3173,14 @@ function clearSessionsForDay(dayKey) {
   if (!activeIds.size) {
     sessions[dayKey] = [];
     saveSessions(true);
+    syncAchievementsState({ silent: true });
     return { removed: list.length, keptActive: 0 };
   }
 
   const next = list.filter((rec) => activeIds.has(rec?.id));
   sessions[dayKey] = next;
   saveSessions(true);
+  syncAchievementsState({ silent: true });
   return { removed: Math.max(0, list.length - next.length), keptActive: next.length };
 }
 
@@ -2614,9 +3382,32 @@ function formatMonthRU(key) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function formatDateInputRU(value) {
+  const key = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return '';
+  const [year, month, day] = key.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+function parseDateInputRU(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/\s+/g, '');
+  const match = normalized.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!match) return '';
+  const [, day, month, year] = match;
+  const key = `${year}-${month}-${day}`;
+  const date = new Date(`${key}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  if (todayKey(date.getTime()) !== key) return '';
+  return key;
+}
+
 function syncReportDateLabels() {
   if ($reportDateFromLabel) $reportDateFromLabel.textContent = formatDateRU($reportDateFrom?.value || todayKey());
   if ($reportDateToLabel) $reportDateToLabel.textContent = formatDateRU($reportDateTo?.value || ($reportDateFrom?.value || todayKey()));
+  if ($reportDateFromText) $reportDateFromText.value = formatDateInputRU($reportDateFrom?.value || todayKey());
+  if ($reportDateToText) $reportDateToText.value = formatDateInputRU($reportDateTo?.value || ($reportDateFrom?.value || todayKey()));
 }
 
 function getReportDatePickerParts(kind) {
@@ -2686,10 +3477,14 @@ function renderReportDatePicker(kind) {
     </div>
   `;
   parts.picker.querySelectorAll('[data-report-date]').forEach((btn) => {
-    btn.addEventListener('click', () => setReportDateValue(kind, btn.dataset.reportDate || todayKey()));
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setReportDateValue(kind, btn.dataset.reportDate || todayKey());
+    });
   });
   parts.picker.querySelectorAll('[data-report-month-nav]').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const [, delta] = String(btn.dataset.reportMonthNav || '').split(':');
       reportDatePickerMonth[kind] = shiftMonthKey(month, Number(delta) || 0);
       renderReportDatePicker(kind);
@@ -2698,7 +3493,11 @@ function renderReportDatePicker(kind) {
   parts.picker.querySelector(`[data-report-today="${kind}"]`)?.addEventListener('click', () => {
     setReportDateValue(kind, todayKey());
   });
-  parts.picker.querySelector(`[data-report-close="${kind}"]`)?.addEventListener('click', closeReportDatePickers);
+  parts.picker.querySelector(`[data-report-today="${kind}"]`)?.addEventListener('click', (e) => e.stopPropagation());
+  parts.picker.querySelector(`[data-report-close="${kind}"]`)?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeReportDatePickers();
+  });
 }
 
 function toggleReportDatePicker(kind) {
@@ -2726,8 +3525,23 @@ function setReportDateValue(kind, value) {
     $reportDateFrom.value = value;
   }
   syncReportDateLabels();
-  closeReportDatePickers();
+  if (reportDatePickerOpen === kind) renderReportDatePicker(kind);
   renderReports();
+}
+
+function commitReportDateText(kind) {
+  const input = kind === 'from' ? $reportDateFromText : $reportDateToText;
+  const fallback = kind === 'from'
+    ? ($reportDateFrom?.value || todayKey())
+    : ($reportDateTo?.value || $reportDateFrom?.value || todayKey());
+  if (!input) return;
+  const parsed = parseDateInputRU(input.value);
+  if (!parsed) {
+    input.value = formatDateInputRU(fallback);
+    toast('Дата: формат ДД.ММ.ГГГГ');
+    return;
+  }
+  setReportDateValue(kind, parsed);
 }
 
 function applyReportPreset(preset) {
@@ -3216,14 +4030,14 @@ function addStationDefinition() {
   if (!settingsDraft) return;
   const defs = getStationDefinitions(settingsDraft);
   const type = 'ps';
-  settingsDraft.stationDefinitions = sortStationDefinitions([
+  settingsDraft.stationDefinitions = [
     ...defs,
     normalizeStationDefinition({
       id: nextStationId(defs),
       type,
       name: makeDefaultStationName(type, defs),
     }, defs.length),
-  ]);
+  ];
   renderStationDefinitionRows();
   syncSettingsDirtyState();
 }
@@ -3344,6 +4158,8 @@ function saveSettingsFromModal() {
   renderJournalStationOptions();
   renderStations(true);
   syncControl();
+  syncAchievementsState();
+  renderAchievementsButton();
   renderSettingsModal();
   rememberSettingsBaseline();
   if ($sessionsModal.classList.contains('modal--open')) renderSessions();
@@ -3366,6 +4182,8 @@ function resetSettings() {
   renderTariffs();
   renderStations(true);
   syncControl();
+  syncAchievementsState({ silent: true });
+  renderAchievementsButton();
   rememberSettingsBaseline();
   toast('Настройки сброшены');
 }
@@ -3516,12 +4334,14 @@ async function boot() {
         stations = b.stations;
         sessions = b.sessions;
         settings = (b?.settings && typeof b.settings === 'object') ? normalizeSettings(b.settings) : settings;
+        achievements = normalizeAchievementsState(b?.achievements);
         lastModified = bLM;
         saveMeta({ lastModified });
         // write to localStorage without forcing immediate flush back
         localStorage.setItem(STORAGE_KEY, JSON.stringify(stations));
         localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        localStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(achievements));
       } else if (lastModified > bLM) {
         // push our newer state to disk
         scheduleFlush(true);
@@ -3723,11 +4543,13 @@ async function startLicensedApp() {
         settings = (b?.settings && typeof b.settings === 'object') ? normalizeSettings(b.settings) : settings;
         stations = syncStationsWithDefinitions(b.stations, getStationDefinitions(settings));
         sessions = b.sessions;
+        achievements = normalizeAchievementsState(b?.achievements);
         lastModified = bLM;
         saveMeta({ lastModified });
         localStorage.setItem(STORAGE_KEY, JSON.stringify(stations));
         localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        localStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(achievements));
       } else if (lastModified > bLM) {
         stations = syncStationsWithDefinitions(stations, getStationDefinitions(settings));
         scheduleFlush(true);
@@ -3746,7 +4568,10 @@ async function startLicensedApp() {
   renderTariffs();
   renderStations(true);
   syncControl();
+  syncAchievementsState({ silent: true });
+  renderAchievementsButton();
   if ($sessionsModal.classList.contains('modal--open')) renderSessions();
+  if ($achievementsModal?.classList.contains('modal--open')) renderAchievements();
   if ($reportsModal.classList.contains('modal--open')) renderReports();
   if ($journalModal.classList.contains('modal--open')) renderJournal();
 }
