@@ -1,14 +1,15 @@
 import {
-  normalizeAchievementsState,
   renderAchievements,
   renderAchievementsButton,
   syncAchievementsState,
 } from "./achievements.js";
 import { renderJournal, renderJournalStationOptions } from "./journal.js";
-import { saveMeta, scheduleFlush } from "./persistence.js";
+import { applyServerState, flushBackupNow, recoverBrowserDraft, scheduleFlush } from "./persistence.js";
+import { ensureAuthentication } from "./business-auth.js";
+import { initBusinessUI, refreshBusiness } from "./business-ui.js";
 import { renderReports, renderSessions } from "./reports.js";
 import { init } from "./runtime.js";
-import { ensureSelectedTariffs, normalizeSettings } from "./settings-model.js";
+import { ensureSelectedTariffs } from "./settings-model.js";
 import { state as appState } from "./state.js";
 import {
   getStationDefinitions,
@@ -71,78 +72,44 @@ export async function fetchLicenseStatus() {
 }
 
 export async function startLicensedApp() {
-  try {
-    const res = await fetch("/api/backup", { cache: "no-store" });
-    if (res.ok) {
-      const b = await res.json();
-      const bLM = Number.isFinite(b?.lastModified) ? b.lastModified : 0;
-      if (b?.source === "backup" || b?.source === "snapshot") {
-        setTimeout(
-          () => toast("Состояние восстановлено из резервной копии"),
-          300,
-        );
-      }
-      if (bLM > appState.lastModified && b?.stations && b?.sessions) {
-        appState.settings =
-          b?.settings && typeof b.settings === "object"
-            ? normalizeSettings(b.settings)
-            : appState.settings;
-        appState.stations = syncStationsWithDefinitions(
-          b.stations,
-          getStationDefinitions(appState.settings),
-        );
-        appState.sessions = b.sessions;
-        appState.achievements = normalizeAchievementsState(b?.achievements);
-        appState.lastModified = bLM;
-        saveMeta({ lastModified: appState.lastModified });
-        localStorage.setItem(
-          appState.STORAGE_KEY,
-          JSON.stringify(appState.stations),
-        );
-        localStorage.setItem(
-          appState.SESSIONS_KEY,
-          JSON.stringify(appState.sessions),
-        );
-        localStorage.setItem(
-          appState.SETTINGS_KEY,
-          JSON.stringify(appState.settings),
-        );
-        localStorage.setItem(
-          appState.ACHIEVEMENTS_KEY,
-          JSON.stringify(appState.achievements),
-        );
-      } else if (appState.lastModified > bLM) {
-        appState.stations = syncStationsWithDefinitions(
-          appState.stations,
-          getStationDefinitions(appState.settings),
-        );
-        scheduleFlush(true);
-      }
-    }
-  } catch {}
-  appState.stations = syncStationsWithDefinitions(
-    appState.stations,
-    getStationDefinitions(appState.settings),
-  );
-  renderJournalStationOptions();
   setLicenseGateVisible(false);
-  if (!appState.appInitialized) {
-    init();
-    return;
+  await ensureAuthentication();
+  const response = await fetch("/api/backup", { cache: "no-store", credentials: "same-origin" });
+  if (!response.ok) throw new Error("state_load_failed");
+  let snapshot = await response.json();
+  appState.serverRevision = Number(snapshot?.revision) || 0;
+  const recovered = await recoverBrowserDraft(snapshot);
+  snapshot = recovered.snapshot;
+  if (recovered.unresolved) {
+    // Keep the cached draft visible and block new sales until recovery completes.
+  } else if (snapshot?.stations && snapshot?.sessions) {
+    applyServerState(snapshot);
+  } else {
+    // First installation: preserve any existing browser state during migration.
+    appState.stations = syncStationsWithDefinitions(
+      appState.stations, getStationDefinitions(appState.settings),
+    );
+    scheduleFlush(true);
+    if (!(await flushBackupNow())) throw new Error("state_save_failed");
   }
-  updateSubtitle();
-  ensureSelectedTariffs();
-  renderTariffs();
-  renderStations(true);
-  syncControl();
-  syncAchievementsState({ silent: true });
-  renderAchievementsButton();
-  if (appState.$sessionsModal.classList.contains("modal--open"))
-    renderSessions();
-  if (appState.$achievementsModal?.classList.contains("modal--open"))
-    renderAchievements();
-  if (appState.$reportsModal.classList.contains("modal--open")) renderReports();
-  if (appState.$journalModal.classList.contains("modal--open")) renderJournal();
+  await refreshBusiness();
+  renderJournalStationOptions();
+  appState.$appShell?.classList.remove("app--shell-hidden");
+  if (!appState.appInitialized) init();
+  else {
+    updateSubtitle();
+    ensureSelectedTariffs();
+    renderTariffs();
+    renderStations(true);
+    syncControl();
+    syncAchievementsState({ silent: true });
+    renderAchievementsButton();
+    if (appState.$sessionsModal.classList.contains("modal--open")) renderSessions();
+    if (appState.$achievementsModal?.classList.contains("modal--open")) renderAchievements();
+    if (appState.$reportsModal.classList.contains("modal--open")) renderReports();
+    if (appState.$journalModal.classList.contains("modal--open")) renderJournal();
+  }
+  initBusinessUI();
 }
 
 export async function activateLicense() {

@@ -96,10 +96,17 @@ async function main() {
         json: { ok: true, licensed: true, machineFingerprintLabel: "UI test" },
       }),
     );
+    const testUser = { id: 'ui-owner', name: 'UI owner', login: 'owner', role: 'owner', active: 1 };
+    await page.route('**/api/accounts/status', route => route.fulfill({ json: { ok: true, configured: true, user: testUser, csrf: 'ui-csrf' } }));
+    await page.route('**/api/business', route => route.fulfill({ json: { ok: true, user: testUser,
+      activeShift: { id: 'ui-shift', opened_by: testUser.id, operator: testUser.name, opened_at: Date.now(),
+        opening_cents: 0, totals: { cash: 0, card: 0, transfer: 0 }, expected_cents: 0, revenue_cents: 0 },
+      shifts: [], products: [], customers: [], payments: [], users: [testUser], audit: [], totals: [] } }));
+    let revision = 0;
     await page.route("**/api/backup", async (route) => {
       if (route.request().method() === "POST") {
-        backup = { ...route.request().postDataJSON(), source: "primary" };
-        await route.fulfill({ json: { ok: true } });
+        backup = { ...route.request().postDataJSON(), source: "primary", revision: revision + 1 };
+        await route.fulfill({ json: { ok: true, revision: ++revision } });
       } else await route.fulfill({ json: backup });
     });
     await page.locator("#btnLicenseRetry").click();

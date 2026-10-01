@@ -1,3 +1,4 @@
+import { storage } from "./storage.js";
 import { openSettings } from "./settings-editor.js";
 import { saveSettings } from "./settings-model.js";
 import { state as appState } from "./state.js";
@@ -15,7 +16,7 @@ export function hashPin(pin) {
 
 export function loadPinGuard() {
   try {
-    const raw = localStorage.getItem(appState.PIN_GUARD_KEY);
+    const raw = storage.getItem(appState.PIN_GUARD_KEY);
     if (!raw) return { attempts: 0, lockUntil: 0 };
     const parsed = JSON.parse(raw);
     return {
@@ -29,7 +30,7 @@ export function loadPinGuard() {
 
 export function savePinGuard(state) {
   try {
-    localStorage.setItem(
+    storage.setItem(
       appState.PIN_GUARD_KEY,
       JSON.stringify({
         attempts: Math.max(0, Math.round(Number(state?.attempts) || 0)),
@@ -94,6 +95,7 @@ export function closePinModal() {
 }
 
 export function requestSettingsAccess() {
+  if (appState.user?.role !== "owner") { toast("Настройки доступны владельцу"); return; }
   if (appState.settingsModalUnlocked) {
     openSettings();
     return;
@@ -102,6 +104,7 @@ export function requestSettingsAccess() {
 }
 
 export function submitPinAccess() {
+  if (appState.user?.role !== "owner") { closePinModal(); return; }
   const guard = loadPinGuard();
   const now = Date.now();
   if (guard.lockUntil > now) {
@@ -159,6 +162,7 @@ export function clearSettingsPinFields() {
 }
 
 export function changeSettingsPin() {
+  if (appState.user?.role !== "owner") { toast("Настройки доступны владельцу"); return; }
   const current = String(appState.$settingsPinCurrent?.value || "").trim();
   const next = String(appState.$settingsPinNew?.value || "").trim();
   const repeat = String(appState.$settingsPinRepeat?.value || "").trim();

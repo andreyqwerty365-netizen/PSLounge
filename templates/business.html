@@ -1,0 +1,28 @@
+<div class="accountGate" id="accountGate" hidden>
+  <section class="accountPanel" aria-labelledby="accountHeading">
+    <div class="businessEyebrow">PS LOUNGE · Рабочее пространство</div>
+    <h1 id="accountHeading">Вход сотрудника</h1>
+    <p id="accountLead">Войдите, чтобы продолжить работу.</p>
+    <form id="accountForm" class="businessForm">
+      <label class="field"><span class="field__label">Ваше имя</span><input class="field__input" name="name" maxlength="80" autocomplete="name" /></label>
+      <label class="field"><span class="field__label">Логин</span><input class="field__input" name="login" required minlength="3" maxlength="40" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
+      <label class="field"><span class="field__label">Пароль · от 8 символов</span><input class="field__input" name="password" type="password" required minlength="8" maxlength="128" autocomplete="current-password" /></label>
+      <p class="businessError" id="accountError" role="alert"></p>
+      <button class="btn btn--primary" id="accountSubmit" type="submit">Войти</button>
+    </form>
+    <p class="businessHint">Данные хранятся на вашем компьютере. Интернет для смены не нужен.</p>
+  </section>
+</div>
+<dialog class="businessDialog" id="businessDialog" aria-busy="false" aria-labelledby="businessHeading">
+  <div class="businessHeader">
+    <div><div class="businessEyebrow">PS LOUNGE · Управление клубом</div><h2 id="businessHeading">Касса и продажи</h2><p id="businessSubtitle" class="businessHint"></p></div>
+    <div class="businessHeaderActions"><button class="btn btn--ghost btn--mini" id="businessRefresh" type="button">Обновить</button><button class="btn btn--ghost btn--mini" id="businessClose" type="button">Закрыть</button></div>
+  </div>
+  <nav class="businessTabs" id="businessTabs" aria-label="Управление клубом"></nav>
+  <div class="businessContent" id="businessContent"></div>
+  <p class="businessError businessGlobalError" id="businessError" role="alert"></p>
+</dialog>
+<dialog class="businessConfirm" id="businessConfirm" aria-labelledby="businessConfirmHeading">
+  <h2 id="businessConfirmHeading">Подтверждение</h2><p id="businessConfirmText"></p>
+  <div class="businessHeaderActions"><button class="btn btn--ghost" id="businessConfirmCancel" type="button">Отмена</button><button class="btn btn--primary" id="businessConfirmAccept" type="button">Продолжить</button></div>
+</dialog>

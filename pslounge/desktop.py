@@ -199,5 +199,8 @@ def main() -> None:
                 target=lambda: (time.sleep(0.6), webbrowser.open(url)), daemon=True
             ).start()
 
-    # Never use reloader in packaged app: it breaks single-instance behavior.
-    app.run(host=host, port=port, debug=debug, use_reloader=False)
+    # A production WSGI server works on Windows and never starts a reloader.
+    from waitress import serve
+
+    app.debug = debug
+    serve(app, host=host, port=port, threads=4)

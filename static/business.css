@@ -1,0 +1,100 @@
+.accountGate[hidden]{display:none}
+.accountGate{position:fixed;inset:0;z-index:1500;display:grid;place-items:center;padding:24px;overflow:auto;background:radial-gradient(ellipse at 70% 20%,#29164b 0,transparent 55%),#080e21}
+.accountPanel{width:min(460px,100%);padding:32px;border:1px solid var(--strokeHi);border-radius:24px;background:linear-gradient(135deg,#111b34e8,#18132ceb);box-shadow:var(--shadow)}
+.accountPanel h1{font-size:30px;line-height:1.15;margin:14px 0}
+.accountPanel>p{color:var(--muted);line-height:1.5}
+.businessEyebrow{font-size:11px;font-weight:700;letter-spacing:1.5px;color:#9de3ec}
+.businessForm{display:grid;gap:14px}
+.businessForm .field__input{width:100%}
+.businessForm select option{color:#fff;background:#141b31}
+.businessForm .btn{justify-self:start}
+.businessHint{font-size:13px;line-height:1.5;color:var(--muted)}
+.businessError{color:#ffa6b7;font-size:13px;line-height:1.5;margin:0}
+.businessError:empty{display:none}
+.businessDialog,.businessConfirm{color:var(--text);background:linear-gradient(130deg,#0f1830,#17132a);border:1px solid var(--strokeHi);box-shadow:var(--shadow);border-radius:22px;max-height:90dvh}
+.businessDialog{width:min(1100px,calc(100vw - 32px));padding:0}
+.businessDialog::backdrop,.businessConfirm::backdrop{background:#040815ba;backdrop-filter:blur(8px)}
+.businessHeader{display:flex;justify-content:space-between;gap:18px;padding:24px 26px 16px}
+.businessHeader h2{font-size:25px;margin:8px 0}
+.businessHeader p{margin:0}
+.businessHeaderActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.businessTabs{display:flex;gap:6px;padding:0 24px 16px;overflow:auto;border-bottom:1px solid var(--stroke)}
+.businessTab{color:var(--muted);background:transparent;border:1px solid transparent;border-radius:12px;padding:10px 15px;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
+.businessTab[aria-current="page"]{color:#fff;background:#65c5ff16;border-color:#65c5ff48}
+.businessContent{padding:22px 26px 28px}
+.businessColumns{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+.businessCard{padding:20px;border:1px solid var(--stroke);border-radius:17px;background:#ffffff04;min-width:0}
+.businessCard h3{font-size:17px;margin:0 0 8px}
+.businessCard p{margin:6px 0 16px}
+.businessMetrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:20px}
+.businessMetric{padding:18px;border:1px solid var(--stroke);border-radius:16px;background:linear-gradient(140deg,#ffffff09,#ffffff02)}
+.businessMetric span{display:block;font-size:12px;color:var(--muted);margin-bottom:8px}
+.businessMetric strong{font-size:23px}
+.businessMetric small{display:block;font-size:11px;color:var(--muted);margin-top:6px}
+.businessList{display:grid;gap:8px;max-height:390px;overflow:auto;margin-top:15px}
+.businessRow{padding:13px;border:1px solid var(--stroke);border-radius:11px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.businessRow>div{min-width:0}
+.businessRow strong,.businessRow small{display:block}
+.businessRow strong{font-size:14px}
+.businessRow small{font-size:11px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+.businessRow .btn{flex-shrink:0}
+.businessEmpty{padding:25px;border:1px dashed var(--strokeHi);border-radius:15px;color:var(--muted);font-size:14px;line-height:1.5;text-align:center}
+.businessFull{grid-column:1/-1}
+.businessTwoFields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.businessCheck{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:13px}
+.businessGlobalError{padding:0 26px 20px}
+.businessAccount{border-top:1px solid var(--stroke);padding:14px 0 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px}
+.businessAccountActions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.businessStatus{font-size:12px;color:#b0ebd8}
+.businessStatus[data-state="closed"]{color:#f1cc9c}
+.businessSaveStatus{font-size:12px;color:var(--muted)}
+.businessSaveStatus[data-state="error"]{color:#ffa6b7}
+.businessSaveStatus[data-state="saved"]{color:#b0ebd8}
+.businessSetup{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:18px;padding:16px 20px;border:1px solid #7dcaff4d;border-radius:15px;background:#7dcaff09}
+.businessSetup p{margin:6px 0 0}
+.businessConfirm{width:min(480px,calc(100vw - 32px));padding:25px}
+.businessConfirm p{white-space:pre-line;line-height:1.5;color:var(--muted)}
+.businessConfirm h2{font-size:22px;margin-top:0}
+.businessConfirm .businessHeaderActions{justify-content:flex-end}
+.businessDownloads{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+.businessDownloads a{text-decoration:none}
+.businessMode{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.businessDanger{color:#ffc1cd}
+.businessAuditDetails{max-width:650px;font-size:12px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.businessSectionGap{margin-top:20px}
+body.businessCompact .app{max-width:1440px!important;width:calc(100vw - 32px)!important;padding-top:14px!important}
+body.businessCompact .grid{gap:10px}
+body.businessCompact .card{padding:14px;border-radius:15px}
+body.businessCompact .card__body{grid-template-columns:1fr!important}
+body.businessCompact .media{display:none}
+body.businessCompact .card{min-height:180px}
+body.businessCompact .timerBox{padding:10px 12px}
+body.businessCompact .timerBox__value{font-size:30px}
+body.businessCompact .station__name{font-size:17px}
+body.businessCompact .topbar{margin-bottom:12px}
+body.businessCompact .businessAccount{padding-bottom:12px}
+body.businessHideAchievements #btnAchievements{display:none}
+@media(min-width:1200px){body.businessCompact .grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+}
+@media(max-width:740px){.businessColumns,.businessMetrics{grid-template-columns:1fr}
+.businessHeader{padding:20px 18px 14px}
+.businessContent{padding:18px}
+.businessTabs{padding-left:14px;padding-right:14px}
+.businessHeaderActions{justify-content:flex-end}
+.businessAccount{flex-direction:column;align-items:flex-start}
+.businessSetup{align-items:flex-start;flex-direction:column}
+.businessMetric strong{font-size:21px}
+.businessTwoFields{grid-template-columns:1fr}
+.accountPanel{padding:24px}
+.businessRow{align-items:flex-start}
+}
+
+
+.businessDemoBanner{padding:9px 18px;text-align:center;background:#b4e5ff12;border-bottom:1px solid #b4e5ff30;color:#b4e5ff;font-size:13px}
+.businessDemoBanner a{color:#fff;text-decoration:none;margin-left:18px}
+.businessSaveStatus.is-error{color:#ffa6b7}
+
+
+body.businessCompact .topbar__right{gap:7px}body.businessCompact .topbar__right .chip{font-size:11px;padding:8px 10px}body.businessCompact .meta{min-width:66px;padding:9px}body.businessCompact .businessAccount{margin-top:0}
+@media(min-width:741px) and (max-width:1199px){body.businessCompact .grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:740px){body.businessCompact .grid{grid-template-columns:1fr!important}}

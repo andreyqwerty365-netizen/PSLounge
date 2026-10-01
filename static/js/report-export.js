@@ -1,3 +1,4 @@
+import { flushBackupNow } from "./persistence.js";
 import {
   getFilteredReportData,
   getReportFilters,
@@ -53,21 +54,22 @@ export function getAttachmentFilename(response, fallback) {
   return fallback;
 }
 
-export function exportTodayXLSX() {
+export async function exportTodayXLSX() {
+  if (document.body?.dataset.demo === 'true') { toast('В демонстрации экспорт рабочих файлов недоступен'); return false; }
+  if (!(await flushBackupNow())) { toast('Экспорт остановлен: изменения не сохранены'); return false; }
   const key = todayKey();
-  const fallback = `PS_Lounge_Report_${formatDateRU(key).replaceAll(".", "-")}.xlsx`;
-  const url = `/api/export/today.xlsx?date=${encodeURIComponent(key)}`;
-  fetch(url)
-    .then((r) => {
-      if (!r.ok) throw new Error("export failed");
-      const filename = getAttachmentFilename(r, fallback);
-      return r.blob().then((blob) => ({ blob, filename }));
-    })
-    .then(({ blob, filename }) => downloadBlob(filename, blob))
-    .catch(() => toast("Не удалось экспортировать XLSX"));
+  try {
+    const response = await fetch(`/api/export/today.xlsx?date=${encodeURIComponent(key)}`);
+    if (!response.ok) throw new Error('export_failed');
+    downloadBlob(getAttachmentFilename(response, `PS_Lounge_${key}.xlsx`), await response.blob());
+    toast('Файл XLSX подготовлен');
+    return true;
+  } catch { toast('Не удалось экспортировать XLSX'); return false; }
 }
 
-export function exportReportsXLSX() {
+export async function exportReportsXLSX() {
+  if (document.body?.dataset.demo === 'true') { toast('В демонстрации экспорт рабочих файлов недоступен'); return false; }
+  if (!(await flushBackupNow())) { toast('Экспорт остановлен: изменения не сохранены'); return false; }
   const filters = getReportFilters();
   const from = filters.from || todayKey();
   const to = filters.to || from;
@@ -86,14 +88,14 @@ export function exportReportsXLSX() {
     from === to
       ? `PS_Lounge_Report_${formatDateRU(from).replaceAll(".", "-")}${suffix}.xlsx`
       : `PS_Lounge_Report_${formatDateRU(from).replaceAll(".", "-")}_${formatDateRU(to).replaceAll(".", "-")}${suffix}.xlsx`;
-  fetch(`/api/export/report.xlsx?${qs.toString()}`)
+  return fetch(`/api/export/report.xlsx?${qs.toString()}`)
     .then((r) => {
       if (!r.ok) throw new Error("export failed");
       const filename = getAttachmentFilename(r, fallback);
       return r.blob().then((blob) => ({ blob, filename }));
     })
-    .then(({ blob, filename }) => downloadBlob(filename, blob))
-    .catch(() => toast("Не удалось экспортировать отчёт XLSX"));
+    .then(({ blob, filename }) => { downloadBlob(filename, blob); toast("Файл XLSX подготовлен"); return true; })
+    .catch(() => { toast("Не удалось экспортировать отчёт XLSX"); return false; });
 }
 
 export function exportTodayJSON() {

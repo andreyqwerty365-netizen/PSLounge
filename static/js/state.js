@@ -33,6 +33,13 @@ export function initializeState() {
   appState._flushTimer = null;
   appState._flushInFlight = false;
   appState._flushRequested = false;
+  appState.serverRevision = 0;
+  appState.user = null;
+  appState.csrf = '';
+  appState.activeShift = null;
+  appState.saveConflict = false;
+  appState.saveFailed = false;
+  appState.pendingBackup = null;
 
   appState.$grid = document.getElementById("stations");
   appState.$appShell = document.getElementById("appShell");

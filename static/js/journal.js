@@ -1,3 +1,4 @@
+import { storage } from "./storage.js";
 import {
   recordAchievementBreakEvent,
   syncAchievementsState,
@@ -57,7 +58,7 @@ export function withButtonGuard(
 
 export function loadActionLog() {
   try {
-    const raw = localStorage.getItem(appState.ACTION_LOG_KEY);
+    const raw = storage.getItem(appState.ACTION_LOG_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -67,7 +68,7 @@ export function loadActionLog() {
 
 export function saveActionLog() {
   try {
-    localStorage.setItem(
+    storage.setItem(
       appState.ACTION_LOG_KEY,
       JSON.stringify(appState.actionLog.slice(0, appState.ACTION_LOG_MAX)),
     );

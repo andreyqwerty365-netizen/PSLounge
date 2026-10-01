@@ -67,7 +67,7 @@ export function init() {
       const hasActive = appState.stations.some(
         (s) => s && s.status && s.status !== "idle",
       );
-      if (!hasActive) return;
+      if (!hasActive && !appState.dirtySinceFlush) return;
       e.preventDefault();
       e.returnValue = "";
     } catch {}
@@ -89,6 +89,7 @@ export function startTicking() {
   if (appState.tickTimer) clearInterval(appState.tickTimer);
   appState.lastTickWallClock = Date.now();
   appState.tickTimer = setInterval(() => {
+    if (!appState.user || appState.saveConflict) return;
     const now = Date.now();
     const delta = now - appState.lastTickWallClock;
     if (Math.abs(delta - 250) > appState.TIME_JUMP_WARN_MS) {

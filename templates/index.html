@@ -10,8 +10,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="{{ asset_url('styles.css') }}" />
+  <link rel="stylesheet" href="{{ asset_url('business.css') }}" />
 </head>
-<body>
+<body data-demo="{{ 'true' if demo else 'false' }}">
+  {% if demo %}<div class="businessDemoBanner">Демонстрация · учебные данные <a href="/about">О продукте</a><a href="/">Рабочая программа</a></div>{% endif %}
   <div class="licenseGate" id="licenseGate" hidden>
     <div class="licenseGate__panel">
       <div class="licenseGate__eyebrow">PS Lounge License</div>
@@ -29,9 +31,12 @@
       <div class="settingsActions">
         <button class="btn btn--ghost" id="btnLicenseRetry" type="button">Проверить снова</button>
         <button class="btn btn--primary" id="btnLicenseActivate" type="button">Активировать</button>
+        <a class="btn btn--ghost" href="/demo">Попробовать демо</a>
       </div>
     </div>
   </div>
+
+  {% include "business.html" %}
 
     <main class="app" id="appShell" aria-label="PS Lounge">
     <header class="topbar">
@@ -48,6 +53,7 @@
       </div>
 
       <div class="topbar__right">
+        <button class="chip chip--ghost" id="btnBusiness" type="button">Касса и продажи</button>
         <button class="chip chip--ghost" id="btnSessions" type="button">Сессии сегодня</button>
         <button class="chip chip--ghost" id="btnReports" type="button">Отчёты</button>
         <button class="chip chip--ghost" id="btnJournal" type="button">Журнал</button>
@@ -65,6 +71,19 @@
         </div>
       </div>
     </header>
+
+    <div class="businessAccount">
+      <div><span id="accountBadge" class="businessHint">Вход не выполнен</span><br /><span id="shiftBadge" class="businessStatus" data-state="closed">Смена закрыта</span></div>
+      <div class="businessAccountActions">
+        <span class="businessSaveStatus" id="saveStatus" role="status" aria-live="polite">Загрузка данных</span>
+        <button class="btn btn--ghost btn--mini" id="btnDownloadUnsaved" type="button" hidden>Скачать несохранённые данные</button>
+        <button class="btn btn--ghost btn--mini" id="btnRetrySave" type="button" hidden>Повторить сохранение</button>
+        <button class="btn btn--ghost btn--mini" id="btnReloadState" type="button" hidden>Загрузить актуальные данные</button>
+        <label class="businessMode"><input id="compactMode" type="checkbox" /> Компактно</label>
+        <label class="businessMode"><input id="hideAchievements" type="checkbox" /> Скрыть достижения</label>
+        <button class="btn btn--ghost btn--mini" id="btnAccountLogout" type="button">Выйти</button>
+      </div>
+    </div>
 
     <section class="grid" id="stations" aria-label="Станции"></section>
 
@@ -146,7 +165,7 @@
           <div class="modal__headActions">
             <button class="btn btn--ghost" id="btnExportToday" type="button">Экспорт</button>
             <button class="btn btn--ghost" id="btnCloseShift" type="button">Закрыть смену</button>
-            <button class="btn btn--ghost" id="btnClearToday" type="button">Очистить</button>
+            <button class="btn btn--ghost" id="btnClearToday" type="button" hidden>История сохраняется</button>
             <button class="btn btn--ghost" id="btnCloseSessions" type="button">Закрыть</button>
           </div>
         </div>
@@ -461,7 +480,7 @@
         <div class="modal__head">
           <div>
             <div class="modal__title">Настройки</div>
-            <div class="modal__sub">Тарифы и цены сохраняются локально и в backup.</div>
+            <div class="modal__sub">Станции и действующие цены сохраняются в базе программы.</div>
           </div>
           <div class="modal__headActions">
             <div class="settingsDirtyBadge" id="settingsDirtyBadge" hidden>Есть несохранённые изменения</div>
@@ -552,6 +571,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
+  {% if demo %}<script src="{{ asset_url('demo.js') }}"></script>{% endif %}
   <script type="module" src="{{ asset_url('app.js') }}"></script>
 </body>
 </html>

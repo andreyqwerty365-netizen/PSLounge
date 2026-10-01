@@ -10,5 +10,7 @@ exports.initialize = async function initialize() {
   global.document = { getElementById: () => null, querySelectorAll: () => [] };
   const { initializeState, state } = await import("../static/js/state.js");
   initializeState();
+  state.user = { id: 'node-owner', role: 'owner' };
+  state.csrf = 'node-test';
   return state;
 };

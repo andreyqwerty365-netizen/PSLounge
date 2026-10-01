@@ -2,47 +2,41 @@
 setlocal
 cd /d "%~dp0"
 
-REM Build client-ready onedir package using PyInstaller.
-REM Developer-only: prepares a portable local environment without starting the server.
-
+REM Each build gets its own output folder; previous client packages stay intact.
 call setup_env.bat
-if errorlevel 1 (
-  echo [ERROR] Environment setup failed.
-  if not defined PS_LOUNGE_NONINTERACTIVE pause
-  exit /b 1
-)
+if errorlevel 1 goto :failed
+call ".venv\Scripts\python.exe" -m pip install -r requirements-build.txt
+if errorlevel 1 goto :failed
 
-echo [PS Lounge] Installing/Updating PyInstaller...
-call ".venv\Scripts\python.exe" -m pip install --upgrade pyinstaller
-if errorlevel 1 (
-  echo [ERROR] PyInstaller install failed.
-  if not defined PS_LOUNGE_NONINTERACTIVE pause
-  exit /b 1
-)
+for /f "delims=" %%V in ('call ".venv\Scripts\python.exe" -c "import json; print(json.load(open('package.json'))['version'])"') do set "BUILD_VERSION=%%V"
+for /f "delims=" %%T in ('call ".venv\Scripts\python.exe" -c "from datetime import datetime; print(datetime.now().isoformat(timespec='microseconds').replace(':','').replace('-','').replace('.','').replace('T','-'))"') do set "BUILD_STAMP=%%T"
+if not defined BUILD_VERSION goto :failed
+if not defined BUILD_STAMP goto :failed
+set "BUILD_ROOT=build\packages\%BUILD_VERSION%-%BUILD_STAMP%"
+set "CLIENT_ROOT=client_release\%BUILD_VERSION%-%BUILD_STAMP%"
 
-echo [PS Lounge] Building EXE (onedir)...
-call ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --name "PS Lounge" --noconsole ^
-  --add-data "templates;templates" ^
-  --add-data "static;static" ^
-  main.py
+echo [PS Lounge] Building %BUILD_VERSION%...
+call ".venv\Scripts\python.exe" -m PyInstaller --name "PS Lounge" --noconsole ^
+  --distpath "%BUILD_ROOT%\dist" --workpath "%BUILD_ROOT%\work" --specpath "%BUILD_ROOT%" ^
+  --add-data "%CD%\templates;templates" --add-data "%CD%\static;static" "%CD%\main.py"
+if errorlevel 1 goto :failed
 
-if errorlevel 1 (
-  echo [ERROR] Build failed.
-  if not defined PS_LOUNGE_NONINTERACTIVE pause
-  exit /b 1
-)
-
-echo [PS Lounge] Creating client_release package...
-if exist "client_release" rmdir /s /q "client_release"
-mkdir "client_release"
-xcopy /E /I /Y "dist\PS Lounge" "client_release\PS Lounge" >nul
-
-REM Put client readme next to EXE
-if exist "README_CLIENT.txt" copy /Y "README_CLIENT.txt" "client_release\PS Lounge\README_CLIENT.txt" >nul
-if exist "activate_license.bat" copy /Y "activate_license.bat" "client_release\PS Lounge\activate_license.bat" >nul
+mkdir "%CLIENT_ROOT%"
+xcopy /E /I /Y "%BUILD_ROOT%\dist\PS Lounge" "%CLIENT_ROOT%\PS Lounge" >nul
+if errorlevel 1 goto :failed
+copy /Y "README.md" "%CLIENT_ROOT%\PS Lounge\README.md" >nul
+copy /Y "CHANGELOG.md" "%CLIENT_ROOT%\PS Lounge\CHANGELOG.md" >nul
+copy /Y "docs\COMMERCIAL_GUIDE.md" "%CLIENT_ROOT%\PS Lounge\COMMERCIAL_GUIDE.md" >nul
+if exist "LICENSE" copy /Y "LICENSE" "%CLIENT_ROOT%\PS Lounge\LICENSE" >nul
+if exist "LICENSE.txt" copy /Y "LICENSE.txt" "%CLIENT_ROOT%\PS Lounge\LICENSE.txt" >nul
 
 echo.
-echo Done.
-echo Client folder: client_release\PS Lounge
-echo Run: client_release\PS Lounge\PS Lounge.exe
+echo Portable package: %CLIENT_ROOT%\PS Lounge
+echo Installer: powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -SourceDir "%CLIENT_ROOT%\PS Lounge" -Version "%BUILD_VERSION%"
 if not defined PS_LOUNGE_NONINTERACTIVE pause
+exit /b 0
+
+:failed
+echo [ERROR] Build failed. Existing client packages have been preserved.
+if not defined PS_LOUNGE_NONINTERACTIVE pause
+exit /b 1

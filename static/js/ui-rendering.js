@@ -32,7 +32,7 @@ export function updateSubtitle() {
     Math.round(appState.settings.overdueMinutes || 0),
   );
   const count = getStationDefinitions().length;
-  appState.$subtitle.textContent = `${count} станций • доигровка ${grace} мин • просрочка ${overdue} мин • локально в браузере`;
+  appState.$subtitle.textContent = `${count} станций • доигровка ${grace} мин • просрочка ${overdue} мин • данные на компьютере`;
 }
 
 export function renderTariffs() {
@@ -212,6 +212,7 @@ export function renderStations(full = true) {
     if (nameEl) {
       nameEl.addEventListener("dblclick", (ev) => {
         ev.stopPropagation();
+        if (appState.user?.role !== 'owner') { toast('Название станции меняет владелец'); return; }
         const current = (s.name || "").trim();
         const next = prompt("Название станции:", current);
         if (next == null) return;

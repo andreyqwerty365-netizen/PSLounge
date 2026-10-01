@@ -1,3 +1,4 @@
+import { storage } from "./storage.js";
 import { touchModified } from "./persistence.js";
 import { hashPin } from "./settings-access.js";
 import { state as appState } from "./state.js";
@@ -166,11 +167,11 @@ export function defaultSettings() {
 
 export function loadSettings() {
   try {
-    const raw = localStorage.getItem(appState.SETTINGS_KEY);
+    const raw = storage.getItem(appState.SETTINGS_KEY);
     if (raw) return normalizeSettings(JSON.parse(raw));
   } catch {}
   try {
-    const legacyRaw = localStorage.getItem("pslounge_settings_v1");
+    const legacyRaw = storage.getItem("pslounge_settings_v1");
     if (legacyRaw) return normalizeSettings(JSON.parse(legacyRaw));
   } catch {}
   return defaultSettings();
@@ -178,7 +179,7 @@ export function loadSettings() {
 
 export function saveSettings(immediate = false) {
   appState.settings = normalizeSettings(appState.settings);
-  localStorage.setItem(
+  storage.setItem(
     appState.SETTINGS_KEY,
     JSON.stringify(appState.settings),
   );

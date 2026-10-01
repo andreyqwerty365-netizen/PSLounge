@@ -1,3 +1,4 @@
+import { storage } from "./storage.js";
 import { addActionLog } from "./journal.js";
 import { touchModified } from "./persistence.js";
 import { state as appState } from "./state.js";
@@ -88,7 +89,7 @@ export function normalizeAchievementsState(raw) {
 
 export function loadAchievements() {
   try {
-    const raw = localStorage.getItem(appState.ACHIEVEMENTS_KEY);
+    const raw = storage.getItem(appState.ACHIEVEMENTS_KEY);
     if (!raw) return defaultAchievementsState();
     return normalizeAchievementsState(JSON.parse(raw));
   } catch {
@@ -98,7 +99,7 @@ export function loadAchievements() {
 
 export function saveAchievements(immediate = false) {
   appState.achievements = normalizeAchievementsState(appState.achievements);
-  localStorage.setItem(
+  storage.setItem(
     appState.ACHIEVEMENTS_KEY,
     JSON.stringify(appState.achievements),
   );
@@ -699,7 +700,7 @@ export function syncAchievementsState(options = {}) {
     if (isBackfill)
       state.backfillVersion = appState.ACHIEVEMENTS_BACKFILL_VERSION;
     appState.achievements = state;
-    localStorage.setItem(
+    storage.setItem(
       appState.ACHIEVEMENTS_KEY,
       JSON.stringify(appState.achievements),
     );

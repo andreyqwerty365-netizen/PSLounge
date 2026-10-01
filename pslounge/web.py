@@ -2,23 +2,16 @@
 from __future__ import annotations
 
 from flask import Flask, render_template, jsonify, request, send_file, url_for
-import os
 from pathlib import Path
 from datetime import datetime
 from io import BytesIO
 
-from .constants import SCHEMA_VERSION, STATE_FILE
 from .formatting import _normalize_station_type_key, _parse_date_key
 from .licensing import _activate_license_token, _license_status, _require_license
 from .paths import _app_dir, _resource_path, log
 from .report_data import _collect_report_rows
-from .state import (
-    STATE_LOCK,
-    _atomic_write_json,
-    _is_valid_state_payload,
-    _read_state_file,
-    _trim_sessions,
-)
+from .state import _read_state_file
+from .business.api import register
 from .workbooks import _build_report_workbook, _build_shift_workbook
 
 app = Flask(
@@ -57,6 +50,16 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/demo")
+def demo():
+    return render_template("index.html", demo=True)
+
+
+@app.get("/about")
+def about():
+    return render_template("about.html")
+
+
 @app.get("/health")
 def health():
     # Used by the launcher to verify that the running instance is PS Lounge.
@@ -88,73 +91,20 @@ def api_license_activate():
 
 @app.get("/api/backup")
 def api_get_backup():
-    denied = _require_license()
+    denied = _authorize()
     if denied:
         return denied
-    return jsonify(_read_state_file())
+    return jsonify(_read_database_state())
 
 
 @app.post("/api/backup")
 def api_set_backup():
-    denied = _require_license()
-    if denied:
-        return denied
-    payload = request.get_json(silent=True) or {}
-    if not isinstance(payload, dict):
-        return jsonify({"ok": False, "error": "bad json"}), 400
-
-    last_modified = payload.get("lastModified")
-    stations = payload.get("stations")
-    sessions = payload.get("sessions")
-    settings = payload.get("settings")
-    achievements = payload.get("achievements")
-
-    if isinstance(last_modified, bool) or not isinstance(last_modified, int):
-        return jsonify({"ok": False, "error": "lastModified must be int"}), 400
-
-    with STATE_LOCK:
-        # Read current to prevent older overwrite
-        current = _read_state_file()
-        cur_lm = int(current.get("lastModified") or 0)
-        if last_modified < cur_lm:
-            return jsonify(
-                {
-                    "ok": True,
-                    "skipped": True,
-                    "reason": "older_than_current",
-                    "currentLastModified": cur_lm,
-                }
-            )
-
-        # Trim sessions growth
-        retention_days = int(os.environ.get("PS_LOUNGE_RETENTION_DAYS", "60"))
-        if isinstance(sessions, dict):
-            sessions = _trim_sessions(sessions, retention_days)
-
-        data = {
-            "schemaVersion": SCHEMA_VERSION,
-            "version": 1,
-            "lastModified": last_modified,
-            "stations": stations,
-            "sessions": sessions,
-            "settings": settings,
-            "achievements": achievements,
-        }
-
-        if not _is_valid_state_payload(data):
-            return jsonify({"ok": False, "error": "invalid_state_shape"}), 400
-
-        try:
-            _atomic_write_json(_app_dir() / STATE_FILE, data)
-            return jsonify({"ok": True})
-        except Exception as e:
-            log(f"Failed to write state file: {e!r}")
-            return jsonify({"ok": False, "error": "write_failed"}), 500
+    return _save_database_state()
 
 
 @app.get("/api/export/today.xlsx")
 def api_export_today_xlsx():
-    denied = _require_license()
+    denied = _authorize()
     if denied:
         return denied
     try:
@@ -163,7 +113,7 @@ def api_export_today_xlsx():
         )
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_date"}), 400
-    state = _read_state_file()
+    state = _read_database_state()
     session_rows, sales_rows, period_keys = _collect_report_rows(state, key, key)
     wb = _build_shift_workbook(key, session_rows, sales_rows, state)
     bio = BytesIO()
@@ -180,7 +130,7 @@ def api_export_today_xlsx():
 
 @app.get("/api/export/report.xlsx")
 def api_export_report_xlsx():
-    denied = _require_license()
+    denied = _authorize()
     if denied:
         return denied
     try:
@@ -196,7 +146,7 @@ def api_export_report_xlsx():
     if from_key > to_key:
         from_key, to_key = to_key, from_key
 
-    state = _read_state_file()
+    state = _read_database_state()
     session_rows, sales_rows, period_keys = _collect_report_rows(
         state, from_key, to_key, station_type, payment
     )
@@ -217,3 +167,8 @@ def api_export_report_xlsx():
         as_attachment=True,
         download_name=filename,
     )
+
+
+_authorize, _read_database_state, _save_database_state = register(
+    app, lambda: _require_license(), lambda: _app_dir(), lambda: _read_state_file()
+)

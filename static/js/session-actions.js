@@ -1,3 +1,4 @@
+import { canTakePayment } from "./business-ui.js";
 import { addActionLog, rejectAction } from "./journal.js";
 import { saveStations } from "./persistence.js";
 import { renderSessions } from "./reports.js";
@@ -93,6 +94,7 @@ export function undoLast(stationId) {
 }
 
 export function applyTariff(mode) {
+  if (!canTakePayment()) return;
   if (appState.selectedStationId == null) return;
   const s = appState.stations.find((x) => x.id === appState.selectedStationId);
   if (!s) return;
@@ -129,6 +131,7 @@ export function applyTariff(mode) {
     s.lastClosedSnapshot = null;
     recordSale(s, {
       type: "start_tariff",
+      tariffId: t.id,
       label: `Старт: ${t.label}`,
       minutes: mins,
       amount,
@@ -153,6 +156,7 @@ export function applyTariff(mode) {
   bumpSessionExtension(s, mins);
   recordSale(s, {
     type: "extend_tariff",
+    tariffId: t.id,
     label: `Продление: ${t.label}`,
     minutes: mins,
     amount,
@@ -177,6 +181,7 @@ export function applyTariff(mode) {
 }
 
 export function applyCustom(mode) {
+  if (!canTakePayment()) return;
   const mins = parseInt(appState.$customMinutes.value, 10);
   if (!Number.isFinite(mins) || mins < 10) {
     rejectAction(null, "Минуты: минимум 10");
@@ -259,6 +264,7 @@ export function applyCustom(mode) {
 }
 
 export function addPaidMinutes(minutes) {
+  if (!canTakePayment()) return;
   if (appState.selectedStationId == null) return;
   const s = appState.stations.find((x) => x.id === appState.selectedStationId);
   if (!s || s.status === "idle") {

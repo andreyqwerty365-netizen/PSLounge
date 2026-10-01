@@ -141,11 +141,12 @@ export function recordSale(station, sale) {
           ? sale.paymentMethod
           : rec.paymentMethod || appState.selectedPaymentMethod || "cash",
     };
+    if (sale?.tariffId) entry.tariffId = sale.tariffId;
     rec.sales.push(entry);
     rec.totalAmount = rec.sales.reduce(
-      (sum, x) => sum + (Number(x.amount) || 0),
+      (sum, x) => sum + Math.round((Number(x.amount) || 0) * 100),
       0,
-    );
+    ) / 100;
     rec.paymentMethod = entry.paymentMethod;
     saveSessions(true);
   } catch {}

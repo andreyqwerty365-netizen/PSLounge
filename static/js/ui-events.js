@@ -33,7 +33,6 @@ import {
   exportTodayXLSX,
 } from "./report-export.js";
 import {
-  clearSessionsForDay,
   closeReports,
   closeSessions,
   openReports,
@@ -51,7 +50,6 @@ import {
   undoLast,
 } from "./session-actions.js";
 import { restoreLastClosedSession } from "./session-recovery.js";
-import { todayKey } from "./sessions.js";
 import {
   changeSettingsPin,
   closePinModal,
@@ -69,6 +67,7 @@ import {
 import { state as appState } from "./state.js";
 import { updateSubtitle } from "./ui-rendering.js";
 import { toast } from "./ui-utils.js";
+import { openBusiness } from "./business-ui.js";
 
 export function bindUI() {
   appState.$btnSessions.addEventListener("click", openSessions);
@@ -88,73 +87,22 @@ export function bindUI() {
       btn.getAttribute("data-achievement-filter") || "all";
     renderAchievements();
   });
-  appState.$btnClearToday.addEventListener("click", () => {
-    const ok = confirm(
-      "Очистить список сессий за сегодня?\n\nЭто действие удалит весь список и его нельзя отменить.",
-    );
-    if (!ok) return;
-    const key = todayKey();
-    const result = clearSessionsForDay(key);
-    renderSessions();
-    if (result.keptActive)
-      toast(
-        `Очищено ${result.removed} сессий, активные (${result.keptActive}) сохранены`,
-      );
-    else toast("Сессии за сегодня очищены");
-  });
-
+  // Financial history is retained; closing a shift never deletes sessions.
+  if (appState.$btnClearToday) appState.$btnClearToday.hidden = true;
   if (appState.$btnExportToday) {
     appState.$btnExportToday.addEventListener(
       "click",
-      withButtonGuard(appState.$btnExportToday, "export_today", () => {
+      withButtonGuard(appState.$btnExportToday, "export_today", async () => {
         const list = todaySessionsList();
-        if (!list || list.length === 0) {
-          toast("Сессий за сегодня нет");
-          return;
+        if (!list || list.length === 0) { toast("Сессий за сегодня нет"); return; }
+        if (await exportTodayXLSX()) {
+          exportTodayJSON();
+          toast("Файлы подготовлены к скачиванию");
         }
-        exportTodayXLSX();
-        exportTodayJSON();
-        toast("Экспорт: готово");
       }),
     );
   }
-
-  if (appState.$btnCloseShift) {
-    appState.$btnCloseShift.addEventListener("click", () => {
-      const list = todaySessionsList();
-      if (!list || list.length === 0) {
-        if (confirm("Сессий за сегодня нет. Очистить список?")) {
-          const key = todayKey();
-          const result = clearSessionsForDay(key);
-          renderSessions();
-          if (result.keptActive)
-            toast(
-              `Очищено ${result.removed} сессий, активные (${result.keptActive}) сохранены`,
-            );
-          else toast("Сессии за сегодня очищены");
-        }
-        return;
-      }
-
-      exportTodayXLSX();
-      exportTodayJSON();
-      const ok = confirm(
-        "Отчёт сохранён (XLSX + JSON). Очистить сессии за сегодня?",
-      );
-      if (ok) {
-        const key = todayKey();
-        const result = clearSessionsForDay(key);
-        renderSessions();
-        if (result.keptActive)
-          toast(
-            `Смена закрыта: завершенные сессии очищены, активные (${result.keptActive}) оставлены`,
-          );
-        else toast("Смена закрыта: сессии за сегодня очищены");
-      } else {
-        toast("Смена закрыта: отчёт сохранён");
-      }
-    });
-  }
+  appState.$btnCloseShift?.addEventListener("click", () => void openBusiness("shift"));
 
   appState.$btnStart.addEventListener(
     "click",

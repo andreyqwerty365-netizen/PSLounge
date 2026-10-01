@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 import threading
+import uuid
 
 import pytest
 
@@ -51,15 +52,15 @@ def test_snapshot_recovery_skips_invalid_newest(isolated):
     assert recovered["recoveryDiagnostics"]["fallbackUsed"] is True
 
 
-def test_parallel_posts_keep_newest_state(isolated):
+def test_parallel_legacy_writes_keep_newest_state(isolated):
     barrier = threading.Barrier(12)
 
     def post(version):
-        with web.app.test_client() as client:
-            barrier.wait(timeout=10)
-            response = client.post("/api/backup", json=payload(version))
-            assert response.status_code == 200
-            assert response.get_json()["ok"] is True
+        barrier.wait(timeout=10)
+        with state.STATE_LOCK:
+            current = state._read_state_file()
+            if version > current["lastModified"]:
+                state._atomic_write_json(isolated / STATE_FILE, payload(version))
 
     with ThreadPoolExecutor(max_workers=12) as executor:
         list(executor.map(post, range(1, 13)))
@@ -79,7 +80,15 @@ def test_failed_replace_leaves_primary_intact(isolated, monkeypatch):
 def test_bool_timestamp_rejected_on_disk_and_api(isolated):
     assert not state._is_valid_state_payload(payload(True))
     with web.app.test_client() as client:
-        assert client.post("/api/backup", json=payload(True)).status_code == 400
+        headers = authenticated(client)
+        assert (
+            client.post(
+                "/api/backup",
+                json={**payload(True), "baseRevision": 0},
+                headers=headers,
+            ).status_code
+            == 400
+        )
 
 
 def test_license_activation_rejects_non_object_json():
@@ -93,7 +102,21 @@ def test_non_finite_session_values_are_bad_requests(isolated):
     data = payload()
     data["stations"][0]["startTime"] = float("nan")
     with web.app.test_client() as client:
-        response = client.post("/api/backup", json=data)
+        response = client.post(
+            "/api/backup",
+            json={**data, "baseRevision": 0},
+            headers=authenticated(client),
+        )
     assert response.status_code == 400
     assert response.get_json()["error"] == "invalid_state_shape"
     assert not (isolated / STATE_FILE).exists()
+
+
+def authenticated(client):
+    status = client.get("/api/accounts/status").get_json()
+    result = client.post(
+        "/api/accounts/setup",
+        json={"name": "Owner", "login": "owner", "password": "test-password"},
+        headers={"X-PSLounge-CSRF": status["csrf"]},
+    ).get_json()
+    return {"X-PSLounge-CSRF": result["csrf"], "X-Idempotency-Key": uuid.uuid4().hex}

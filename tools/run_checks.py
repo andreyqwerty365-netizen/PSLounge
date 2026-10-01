@@ -33,6 +33,7 @@ def main() -> int:
             "tests",
             "tools/backend_smoke_check.py",
             "tools/run_checks.py",
+            "tools/business_test_server.py",
         ]
     ]
     if not args.lint:
@@ -49,6 +50,7 @@ def main() -> int:
             ]
         if args.ui:
             commands.append(["node", "tools/frontend_smoke_check.cjs"])
+            commands.append(["node", "tools/business_smoke_check.cjs"])
     for command in commands:
         print("Running:", " ".join(command), flush=True)
         result = subprocess.run(command, cwd=ROOT, check=False)

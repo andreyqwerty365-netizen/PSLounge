@@ -8,7 +8,8 @@
     "smoke:py": "python tools/run_checks.py --backend",
     "smoke:ui": "node tools/frontend_smoke_check.cjs",
     "smoke:all": "python tools/run_checks.py --ui",
-    "smoke:licensed": "node tools/playwright_smoke_check.cjs"
+    "smoke:licensed": "node tools/playwright_smoke_check.cjs",
+    "smoke:business": "node tools/business_smoke_check.cjs"
   },
   "devDependencies": {
     "playwright": "1.59.1"

@@ -1,12 +1,10 @@
 import { syncAchievementsState } from "./achievements.js";
-import { saveSessions } from "./persistence.js";
 import {
   closeReportDatePickers,
   syncReportDateLabels,
   syncReportPresetButtons,
 } from "./report-calendar.js";
 import {
-  getActiveSessionIdsForDay,
   labelTariff,
   money,
   paymentLabel,
@@ -26,25 +24,9 @@ export function todaySessionsList() {
 }
 
 export function clearSessionsForDay(dayKey) {
-  const list = Array.isArray(appState.sessions[dayKey])
-    ? appState.sessions[dayKey]
-    : [];
-  const activeIds = getActiveSessionIdsForDay(dayKey);
-  if (!activeIds.size) {
-    appState.sessions[dayKey] = [];
-    saveSessions(true);
-    syncAchievementsState({ silent: true });
-    return { removed: list.length, keptActive: 0 };
-  }
-
-  const next = list.filter((rec) => activeIds.has(rec?.id));
-  appState.sessions[dayKey] = next;
-  saveSessions(true);
-  syncAchievementsState({ silent: true });
-  return {
-    removed: Math.max(0, list.length - next.length),
-    keptActive: next.length,
-  };
+  // Financial history is retained; a shift is closed through the cash desk.
+  const list = appState.sessions[dayKey] || [];
+  return { removed: 0, keptActive: list.length };
 }
 
 export function openSessions() {
