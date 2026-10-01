@@ -147,9 +147,9 @@ def assert_report_workbook_content(workbook) -> None:
 
     ensure(summary["A7"].value == 600, f"report summary revenue should be 600, got {summary['A7'].value}")
     ensure(summary["C7"].value == 1, f"report summary sessions count should be 1, got {summary['C7'].value}")
-    ensure(summary["B12"].value == 600, f"report summary simulator total should be 600, got {summary['B12'].value}")
-    ensure(summary["B17"].value == 300, f"report summary cash total should be 300, got {summary['B17'].value}")
-    ensure(summary["B18"].value == 300, f"report summary card total should be 300, got {summary['B18'].value}")
+    ensure(summary["B16"].value == 600, f"report summary simulator total should be 600, got {summary['B16'].value}")
+    ensure(summary["B21"].value == 300, f"report summary cash total should be 300, got {summary['B21'].value}")
+    ensure(summary["B22"].value == 300, f"report summary card total should be 300, got {summary['B22'].value}")
 
     ensure(sessions["H2"].value == 600, f"report sessions total should be 600, got {sessions['H2'].value}")
     ensure(sessions["I2"].value == MIXED_LABEL, f"report sessions payment should be mixed, got {sessions['I2'].value}")
@@ -169,8 +169,8 @@ def assert_filtered_report_workbook_content(workbook) -> None:
 
     ensure(summary["A7"].value == 300, f"filtered report revenue should be 300, got {summary['A7'].value}")
     ensure(summary["C7"].value == 1, f"filtered report sessions count should stay 1, got {summary['C7'].value}")
-    ensure(summary["B17"].value == 0, f"filtered report cash total should be 0, got {summary['B17'].value}")
-    ensure(summary["B18"].value == 300, f"filtered report card total should be 300, got {summary['B18'].value}")
+    ensure(summary["B21"].value == 0, f"filtered report cash total should be 0, got {summary['B21'].value}")
+    ensure(summary["B22"].value == 300, f"filtered report card total should be 300, got {summary['B22'].value}")
     ensure(len(data_rows) == 1, f"filtered report should have one non-empty sale row, got {len(data_rows)}")
     ensure(data_rows[0][7] == CARD_LABEL, f"filtered report sale payment should be card, got {data_rows[0][7]}")
 

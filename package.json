@@ -1,15 +1,17 @@
 {
   "name": "pslounge-local-smoke",
   "private": true,
-  "version": "2.0.0",
-  "description": "Smoke tooling for PS Lounge 2.0",
+  "version": "2.1.0",
+  "description": "Development and smoke tooling for PS Lounge 2.1",
   "scripts": {
-    "lint:py": ".\\.venv\\Scripts\\python.exe -m ruff check main.py tools",
-    "smoke:py": "call tools\\run_smoke_checks.bat",
-    "smoke:ui": "node tools/playwright_smoke_check.cjs",
-    "smoke:all": "call tools\\run_smoke_checks.bat"
+    "lint:py": "python tools/run_checks.py --lint",
+    "smoke:py": "python tools/run_checks.py --backend",
+    "smoke:ui": "node tools/frontend_smoke_check.cjs",
+    "smoke:all": "python tools/run_checks.py --ui",
+    "smoke:licensed": "node tools/playwright_smoke_check.cjs"
   },
   "devDependencies": {
     "playwright": "1.59.1"
-  }
+  },
+  "type": "module"
 }

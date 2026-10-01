@@ -23,3 +23,5 @@ pslounge_state.bak.json
 state_history/*.json
 
 PS_Lounge_Log.txt
+
+.pytest_cache/

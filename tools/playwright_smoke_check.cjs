@@ -77,7 +77,7 @@ const { chromium } = resolvePlaywrightModule();
 
 const ROOT = process.cwd();
 const TRACE_FILE = path.join(ROOT, '.tmp_playwright_smoke_trace.log');
-const PYTHON_EXE = path.join(ROOT, '.venv', 'Scripts', 'python.exe');
+const PYTHON_EXE = process.env.PS_LOUNGE_PYTHON || path.join(ROOT, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 const SETTINGS_PIN = process.env.PS_LOUNGE_PIN || '4826';
 
 function assert(condition, message) {
